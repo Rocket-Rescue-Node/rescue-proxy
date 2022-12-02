@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"sync"
 
+	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/router"
 	"go.uber.org/zap"
@@ -19,9 +20,9 @@ import (
 var logger *zap.Logger
 
 type config struct {
-	BeaconURL    *url.URL
-	ExecutionURL *url.URL
-	ListenAddr   string
+	BeaconURL         *url.URL
+	ExecutionURL      *url.URL
+	ListenAddr        string
 	RocketStorageAddr string
 }
 
@@ -147,6 +148,16 @@ func main() {
 		return
 	}
 
+	// Connect to and initialize the consensus layer
+	cl := consensuslayer.NewConsensusLayer(config.BeaconURL, logger)
+
+	err = cl.Init()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to init Consensus Layer client. \n%v\n", err)
+		os.Exit(1)
+		return
+	}
+
 	// Spin up the server on a different goroutine, since it blocks.
 	var serverWaitGroup sync.WaitGroup
 	serverWaitGroup.Add(1)
@@ -172,4 +183,5 @@ func main() {
 
 	// Disconnect from the execution client
 	el.Deinit()
+	cl.Deinit()
 }
