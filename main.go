@@ -11,7 +11,7 @@ import (
 	"os/signal"
 	"sync"
 
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/execution_layer"
+	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/router"
 	"go.uber.org/zap"
 )
@@ -92,9 +92,9 @@ func initFlags() (config config) {
 		return
 	}
 
-	// Don't bother with websockets
-	if config.ExecutionURL.Scheme != "http" && config.ExecutionURL.Scheme != "https" {
-		fmt.Fprintf(os.Stderr, "Invalid -ec-url: %s\nOnly http and https Execution Clients are supported right now.\n", *ecURLFlag)
+	// We must use websockets to subscribe to events
+	if config.ExecutionURL.Scheme != "ws" {
+		fmt.Fprintf(os.Stderr, "Invalid -ec-url: %s\nOnly ws Execution Clients are supported right now.\n", *ecURLFlag)
 		os.Exit(1)
 		return
 	}
@@ -127,6 +127,7 @@ func main() {
 
 	// Initialize config
 	config := initFlags()
+	logger.Info("Starting up the rescue node proxy...")
 
 	// Listen on the provided address
 	listener, err := net.Listen("tcp", config.ListenAddr)
@@ -137,9 +138,11 @@ func main() {
 	}
 
 	// Connect to and initialize the execution layer
-	el, err := execution_layer.NewExecutionLayer(config.ExecutionURL, config.RocketStorageAddr)
+	el := executionlayer.NewExecutionLayer(config.ExecutionURL, config.RocketStorageAddr, logger)
+
+	err = el.Init()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to create Execution Layer client. Rocket storage %s, URL %s\n", config.RocketStorageAddr, config.ExecutionURL.String())
+		fmt.Fprintf(os.Stderr, "Unable to init Execution Layer client. \n%v\n", err)
 		os.Exit(1)
 		return
 	}
@@ -166,4 +169,7 @@ func main() {
 
 	// Wait for the listener/server to exit
 	serverWaitGroup.Wait()
+
+	// Disconnect from the execution client
+	el.Deinit()
 }
