@@ -5,7 +5,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/execution_layer"
+	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 )
@@ -13,7 +13,7 @@ import (
 type proxyRouter struct {
 	proxy  *httputil.ReverseProxy
 	logger *zap.Logger
-	el     *execution_layer.ExecutionLayer
+	el     *executionlayer.ExecutionLayer
 }
 
 type handler func(http.ResponseWriter, *http.Request)
@@ -48,7 +48,8 @@ func (pr *proxyRouter) authenticated(h handler) handler {
 	}
 }
 
-func NewProxyRouter(beaconNode *url.URL, el *execution_layer.ExecutionLayer, logger *zap.Logger) *mux.Router {
+// NewProxyRouter creates a new mux.router with the provided beacon node URL, execution layer, and logger
+func NewProxyRouter(beaconNode *url.URL, el *executionlayer.ExecutionLayer, logger *zap.Logger) *mux.Router {
 	out := mux.NewRouter()
 
 	// Create the reverse proxy.
