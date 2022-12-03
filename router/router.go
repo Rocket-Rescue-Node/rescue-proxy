@@ -1,10 +1,16 @@
 package router
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 
+	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
@@ -14,22 +20,89 @@ type proxyRouter struct {
 	proxy  *httputil.ReverseProxy
 	logger *zap.Logger
 	el     *executionlayer.ExecutionLayer
+	cl     *consensuslayer.ConsensusLayer
 }
 
-type handler func(http.ResponseWriter, *http.Request)
+func cloneRequestBody(r *http.Request) (io.ReadCloser, error) {
+	// Read the body
+	buf, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		return nil, err
+	}
 
-func (pr *proxyRouter) prepareBeaconProposer() handler {
+	original := ioutil.NopCloser(bytes.NewBuffer(buf))
+	clone := ioutil.NopCloser(bytes.NewBuffer(buf))
+	r.Body = original
+	return clone, nil
+}
+
+func (pr *proxyRouter) prepareBeaconProposer() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		pr.logger.Debug("Proxying Guarded URL", zap.String("url", r.URL.String()))
-		// For now, simply proxy the request
-		// TODO: inspect request `r` and enforce the dang rules
+		// Clone the request body so it can still be proxied
+		buf, err := cloneRequestBody(r)
+		if err != nil {
+			pr.logger.Warn("Error cloning prepare_beacon_proposers request body", zap.Error(err))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Parse JSON body of request
+		var proposers consensuslayer.PrepareBeaconProposerRequest
+		if err := json.NewDecoder(buf).Decode(&proposers); err != nil {
+			pr.logger.Warn("Malformed prepare_beacon_proposers request", zap.Error(err))
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// Create a slice of the indices
+		indices := make([]string, 0, len(proposers))
+
+		// Validate each proposer's fee recipient
+		for _, proposer := range(proposers) {
+			indices = append(indices, proposer.ValidatorIndex)
+		}
+
+		// Get the index->pubkey map
+		pubkeyMap, err := pr.cl.GetValidatorPubkey(indices)
+		if err != nil {
+			pr.logger.Error("Error while querying CL for validator pubkeys", zap.Error(err))
+		}
+
+		// Iterate the results and check the fee recipients against our expected values
+		// Note: we iterate the map from the HTTP request to ensure every key is present in the
+		// response from the consensuslayer abstraction
+		for _, proposer := range(proposers) {
+			pubkey, found := pubkeyMap[proposer.ValidatorIndex]
+			if !found {
+				pr.logger.Warn("Pubkey for index not found in response from cl.",
+					zap.String("requested index", proposer.ValidatorIndex))
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+
+			// Next we need to get the expected fee recipient for the pubkey
+			expectedFeeRecipient := pr.el.ValidatorFeeRecipient(pubkey)
+			if expectedFeeRecipient == nil {
+				pr.logger.Warn("Pubkey not found in EL cache. Not an RP validator?", zap.String("key", pubkey.String()))
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			if strings.EqualFold(expectedFeeRecipient.String(), proposer.FeeRecipient) {
+				// Looks like a cheater- fee recipient doesn't match expectations
+				pr.logger.Warn("prepare_beacon_proposer called with unexpected fee recipient",
+					zap.String("expected", expectedFeeRecipient.String()), zap.String("got", proposer.FeeRecipient))
+				w.WriteHeader(http.StatusConflict)
+				return
+			}
+		}
+
+		// At this point all the fee recipients match our expectations. Proxy the request
 		pr.proxy.ServeHTTP(w, r)
 	}
 }
 
-func (pr *proxyRouter) registerValidator() handler {
+func (pr *proxyRouter) registerValidator() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		pr.logger.Debug("Proxying Guarded URL", zap.String("url", r.URL.String()))
 		// For now, simply proxy the request
 		// TODO: inspect request `r` and enforce the dang rules
 		pr.proxy.ServeHTTP(w, r)
@@ -38,18 +111,25 @@ func (pr *proxyRouter) registerValidator() handler {
 
 // Adds authentication to any handler.
 // TODO: Implement, lol
-func (pr *proxyRouter) authenticated(h handler) handler {
-	return func(w http.ResponseWriter, r *http.Request) {
+func (pr *proxyRouter) authenticationMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// If this is an "internal" request, do not bother with auth
+		if strings.HasPrefix(r.RequestURI, "/_/") {
+			pr.logger.Debug("Request on unauthenticated endpoint", zap.String("uri", r.RequestURI))
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// Authenticate the request here, return 403 and exit early as needed.
 
 		// If auth succeeds:
-		pr.logger.Debug("Authentication succeeded")
-		h(w, r)
-	}
+		pr.logger.Debug("Proxying Guarded URI", zap.String("uri", r.RequestURI))
+		next.ServeHTTP(w, r)
+	})
 }
 
 // NewProxyRouter creates a new mux.router with the provided beacon node URL, execution layer, and logger
-func NewProxyRouter(beaconNode *url.URL, el *executionlayer.ExecutionLayer, logger *zap.Logger) *mux.Router {
+func NewProxyRouter(beaconNode *url.URL, el *executionlayer.ExecutionLayer, cl *consensuslayer.ConsensusLayer, logger *zap.Logger) *mux.Router {
 	out := mux.NewRouter()
 
 	// Create the reverse proxy.
@@ -62,28 +142,27 @@ func NewProxyRouter(beaconNode *url.URL, el *executionlayer.ExecutionLayer, logg
 		proxy,
 		logger,
 		el,
+		cl,
 	}
 
 	// Path to check the status of the rescue node. Simply 200 OK.
-	out.Path("/status").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	out.Path("/_/status").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logger.Debug("Received healthcheck, replying 200 OK")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK\n"))
-		return
 	})
 
-	// Some paths are "guarded"- we need custom logic to enforce the rules
 	out.Path("/eth/v1/validator/prepare_beacon_proposer").
-		HandlerFunc(pr.authenticated(pr.prepareBeaconProposer()))
+		HandlerFunc(pr.prepareBeaconProposer())
 
 	out.Path("/eth/v1/validator/register_validator").
-		HandlerFunc(pr.authenticated(pr.registerValidator()))
+		HandlerFunc(pr.registerValidator())
 
 	// By default, simply reverse-proxy every request
-	out.PathPrefix("/").HandlerFunc(pr.authenticated(func(w http.ResponseWriter, r *http.Request) {
-		logger.Debug("Proxying unprotected URL", zap.String("url", r.URL.String()))
-		proxy.ServeHTTP(w, r)
-	}))
+	out.PathPrefix("/").Handler(proxy)
+
+	// Install the authentication middleware
+	out.Use(pr.authenticationMiddleware)
 
 	return out
 }
