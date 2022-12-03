@@ -21,9 +21,6 @@ import (
 	"go.uber.org/zap"
 )
 
-var slotSeconds uint = 12
-var epochSeconds uint = slotSeconds * 32
-
 type nodeInfo struct {
 	inSmoothingPool bool
 	feeDistributor  common.Address
@@ -111,7 +108,7 @@ func (e *ExecutionLayer) setECShutdownCb(cb func()) {
 func (e *ExecutionLayer) handleNodeEvent(event types.Log) {
 
 	// Check if it's a node registration
-	if bytes.Compare(event.Topics[0].Bytes(), e.nodeRegisteredTopic.Bytes()) == 0 {
+	if bytes.Equal(event.Topics[0].Bytes(), e.nodeRegisteredTopic.Bytes()) {
 		// When we see new nodes register, assume they aren't in the SP and add to index
 		nodeInfo := &nodeInfo{}
 		addr := common.BytesToAddress(event.Topics[1].Bytes())
@@ -121,7 +118,7 @@ func (e *ExecutionLayer) handleNodeEvent(event types.Log) {
 	}
 
 	// Otherwise it should be a smoothing pool update
-	if bytes.Compare(event.Topics[0].Bytes(), e.smoothingPoolStatusChangedTopic.Bytes()) == 0 {
+	if bytes.Equal(event.Topics[0].Bytes(), e.smoothingPoolStatusChangedTopic.Bytes()) {
 		var n *nodeInfo
 		// When we see a SP status change, update the pointer in the index
 		nodeAddr := common.BytesToAddress(event.Topics[1].Bytes())
@@ -150,13 +147,12 @@ func (e *ExecutionLayer) handleNodeEvent(event types.Log) {
 	}
 
 	e.logger.Warn("Event with unknown topic received", zap.String("string", event.Topics[0].String()))
-	return
 }
 
 func (e *ExecutionLayer) handleMinipoolEvent(event types.Log) {
 
 	// Make sure it's an event for the only topic we subscribed to, minipool launches
-	if bytes.Compare(event.Topics[0].Bytes(), e.minipoolLaunchedTopic.Bytes()) != 0 {
+	if !bytes.Equal(event.Topics[0].Bytes(), e.minipoolLaunchedTopic.Bytes()) {
 		e.logger.Warn("Event with unknown topic received", zap.String("string", event.Topics[0].String()))
 		return
 	}
@@ -175,18 +171,17 @@ func (e *ExecutionLayer) handleMinipoolEvent(event types.Log) {
 	// Finally, update the minipool index
 	e.minipoolIndex.Store(minipoolDetails.Pubkey, nodeAddr)
 	e.logger.Debug("Added new minipool", zap.String("pubkey", minipoolDetails.Pubkey.String()), zap.String("node", nodeAddr.String()))
-	return
 }
 
 func (e *ExecutionLayer) handleEvent(event types.Log) {
 	// events from the rocketNodeManager contract
-	if bytes.Compare(e.rocketNodeManager.Address[:], event.Address[:]) == 0 {
+	if bytes.Equal(e.rocketNodeManager.Address[:], event.Address[:]) {
 		e.handleNodeEvent(event)
 		goto out
 	}
 
 	// events from the rocketMinipoolManager contract
-	if bytes.Compare(e.rocketMinipoolManager.Address[:], event.Address[:]) == 0 {
+	if bytes.Equal(e.rocketMinipoolManager.Address[:], event.Address[:]) {
 		e.handleMinipoolEvent(event)
 		goto out
 	}
@@ -196,7 +191,6 @@ func (e *ExecutionLayer) handleEvent(event types.Log) {
 out:
 	// We should always update highestBlock when we receive any event
 	e.highestBlock = big.NewInt(int64(event.BlockNumber))
-	return
 }
 
 // Gets the current block and loads any events we missed between highestBlock and the current one
@@ -301,7 +295,7 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 					time.Sleep(time.Duration(i) * (5 * time.Second))
 				}
 
-				if reconnected == false {
+				if !reconnected {
 					// Failed to reconnect after 10 tries
 					e.logger.Panic("Couldn't re-establish eth client connection")
 				}
@@ -413,7 +407,7 @@ func (e *ExecutionLayer) Deinit() {
 }
 
 // ValidatorFeeRecipient returns the expected fee recipient for a validator, or nil if the validator is "unknown"
-func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey *rptypes.ValidatorPubkey) *common.Address {
+func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey rptypes.ValidatorPubkey) *common.Address {
 
 	void, ok := e.minipoolIndex.Load(pubkey)
 	if !ok {

@@ -113,7 +113,7 @@ func initFlags() (config config) {
 func blockUntilSIGINT() {
 
 	// Trap SIGINT
-	c := make(chan os.Signal)
+	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 
 	// Block until SIGINT is received
@@ -163,8 +163,9 @@ func main() {
 	serverWaitGroup.Add(1)
 	server := http.Server{}
 	go func() {
-		router := router.NewProxyRouter(config.BeaconURL, el, logger)
+		router := router.NewProxyRouter(config.BeaconURL, el, cl, logger)
 		http.Handle("/", router)
+		logger.Info("Starting http server", zap.String("url", config.ListenAddr))
 		if err := server.Serve(listener); err != nil {
 			logger.Info("Server stopped", zap.Error(err))
 		}
