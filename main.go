@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"flag"
 	"fmt"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"os/signal"
 	"sync"
 
+	"github.com/Rocket-Pool-Rescue-Node/credentials"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/router"
@@ -24,6 +26,7 @@ type config struct {
 	ExecutionURL      *url.URL
 	ListenAddr        string
 	RocketStorageAddr string
+	CredentialSecret  string
 }
 
 func initLogger(debug bool) error {
@@ -46,6 +49,7 @@ func initFlags() (config config) {
 	addrURLFlag := flag.String("addr", "0.0.0.0:80", "Address on which to reply to HTTP requests")
 	rocketStorageAddrFlag := flag.String("rocketstorage-addr", "0x1d8f8f00cfa6758d7bE78336684788Fb0ee0Fa46", "Address of the Rocket Storage contract. Defaults to mainnet")
 	debug := flag.Bool("debug", false, "Whether to enable verbose logging")
+	credentialSecretFlag := flag.String("hmac-secret", "test-secret", "The secret to use for HMAC")
 
 	flag.Parse()
 
@@ -105,8 +109,14 @@ func initFlags() (config config) {
 		os.Exit(1)
 		return
 	}
+
+	if *credentialSecretFlag == "" {
+		fmt.Fprintf(os.Stderr, "Invalid -hmac-secret:\n")
+	}
+
 	config.ListenAddr = *addrURLFlag
 	config.RocketStorageAddr = *rocketStorageAddrFlag
+	config.CredentialSecret = *credentialSecretFlag
 	return
 }
 
@@ -158,12 +168,15 @@ func main() {
 		return
 	}
 
+	// Create a credential manager
+	cm := credentials.NewCredentialManager(sha256.New, []byte(config.CredentialSecret))
+
 	// Spin up the server on a different goroutine, since it blocks.
 	var serverWaitGroup sync.WaitGroup
 	serverWaitGroup.Add(1)
 	server := http.Server{}
 	go func() {
-		router := router.NewProxyRouter(config.BeaconURL, el, cl, logger)
+		router := router.NewProxyRouter(config.BeaconURL, el, cl, cm, logger)
 		http.Handle("/", router)
 		logger.Info("Starting http server", zap.String("url", config.ListenAddr))
 		if err := server.Serve(listener); err != nil {

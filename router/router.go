@@ -2,6 +2,7 @@ package router
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"io/ioutil"
@@ -10,11 +11,14 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/Rocket-Pool-Rescue-Node/credentials"
+	"github.com/Rocket-Pool-Rescue-Node/credentials/pb"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
 	"github.com/gorilla/mux"
 	rptypes "github.com/rocket-pool/rocketpool-go/types"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 )
 
 type proxyRouter struct {
@@ -22,6 +26,7 @@ type proxyRouter struct {
 	logger *zap.Logger
 	el     *executionlayer.ExecutionLayer
 	cl     *consensuslayer.ConsensusLayer
+	cm     *credentials.CredentialManager
 }
 
 func cloneRequestBody(r *http.Request) (io.ReadCloser, error) {
@@ -165,6 +170,51 @@ func (pr *proxyRouter) authenticationMiddleware(next http.Handler) http.Handler 
 		}
 
 		// Authenticate the request here, return 403 and exit early as needed.
+		// Start by grabbing basicauth
+		username, password, ok := r.BasicAuth()
+		if !ok {
+			pr.logger.Debug("Received request with no credentials on guarded endpoint")
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		// The username is just the base64 encoding of the node id. We'll want to check it against the credential, so decode it
+		decoder := base64.NewDecoder(base64.URLEncoding, bytes.NewReader([]byte(username)))
+		nodeID, err := io.ReadAll(decoder)
+		if err != nil {
+			pr.logger.Debug("Received request with malformed username on guarded endpoint", zap.Error(err))
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		// The password is our hmac credential
+		decoder = base64.NewDecoder(base64.URLEncoding, bytes.NewReader([]byte(password)))
+		decoded, err := io.ReadAll(decoder)
+		if err != nil {
+			pr.logger.Debug("Received request with malformed password on guarded endpoint", zap.Error(err))
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		// Unmarshal the protobuf
+		unmarshaled := &pb.AuthenticatedCredential{}
+		err = proto.Unmarshal(decoded, unmarshaled)
+		if err != nil {
+			pr.logger.Debug("Received request with malformed password protobuf on guarded endpoint", zap.Error(err))
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		// We don't require the nodeID is present in the password, since it is passed as the user,
+		// however, it was used to generate the hmac, so repopulate it
+		// This also ensures that the password was generated for the requesting node
+		unmarshaled.Credential.NodeId = nodeID
+		err = pr.cm.Verify(unmarshaled)
+		if err != nil {
+			pr.logger.Debug("Unable to verify hmac on guarded endpoint", zap.Error(err))
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 
 		// If auth succeeds:
 		pr.logger.Debug("Proxying Guarded URI", zap.String("uri", r.RequestURI))
@@ -173,7 +223,7 @@ func (pr *proxyRouter) authenticationMiddleware(next http.Handler) http.Handler 
 }
 
 // NewProxyRouter creates a new mux.router with the provided beacon node URL, execution layer, and logger
-func NewProxyRouter(beaconNode *url.URL, el *executionlayer.ExecutionLayer, cl *consensuslayer.ConsensusLayer, logger *zap.Logger) *mux.Router {
+func NewProxyRouter(beaconNode *url.URL, el *executionlayer.ExecutionLayer, cl *consensuslayer.ConsensusLayer, cm *credentials.CredentialManager, logger *zap.Logger) *mux.Router {
 	out := mux.NewRouter()
 
 	// Create the reverse proxy.
@@ -187,6 +237,7 @@ func NewProxyRouter(beaconNode *url.URL, el *executionlayer.ExecutionLayer, cl *
 		logger,
 		el,
 		cl,
+		cm,
 	}
 
 	// Path to check the status of the rescue node. Simply 200 OK.
