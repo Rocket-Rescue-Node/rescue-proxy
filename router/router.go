@@ -166,9 +166,15 @@ func (pr *ProxyRouter) registerValidator() http.HandlerFunc {
 			// Grab the expected fee recipient for the pubkey
 			expectedFeeRecipient, unowned := pr.EL.ValidatorFeeRecipient(pubkey, &authedNodeAddr)
 			if expectedFeeRecipient == nil {
-				pr.Logger.Warn("Pubkey not found in EL cache, or wasn't owned by the user",
-					zap.String("key", pubkey.String()),
-					zap.Bool("someone else's validator", unowned))
+				// When unowned is true for register_validators, it means the pubkey was someone else's minipool
+				// we still want that to get rejected... however, if unowned is false and expectedFeeRecipient is nil,
+				// it means we're seeing a solo validator using mev-boost. Since register_validator requires a signature,
+				// we can allow this fee recipient.
+				if !unowned {
+					// Move on to the next pubkey
+					continue
+				}
+				pr.Logger.Warn("Pubkey not found in EL cache. Not an RP validator?", zap.String("key", pubkey.String()))
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}

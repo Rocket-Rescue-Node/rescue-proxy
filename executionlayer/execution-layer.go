@@ -407,7 +407,7 @@ func (e *ExecutionLayer) Deinit() {
 }
 
 // ValidatorFeeRecipient returns the expected fee recipient for a validator, or nil if the validator is "unknown"
-// If the queryNodeAddr is not nil and the validator isn't owned by that node, (nil, true) is returned
+// If the queryNodeAddr is not nil and the validator is a minipool but isn't owned by that node, (nil, true) is returned
 func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey rptypes.ValidatorPubkey, queryNodeAddr *common.Address) (*common.Address, bool) {
 
 	void, ok := e.minipoolIndex.Load(pubkey)
