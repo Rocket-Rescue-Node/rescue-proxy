@@ -407,15 +407,20 @@ func (e *ExecutionLayer) Deinit() {
 }
 
 // ValidatorFeeRecipient returns the expected fee recipient for a validator, or nil if the validator is "unknown"
-func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey rptypes.ValidatorPubkey) *common.Address {
+// If the queryNodeAddr is not nil and the validator isn't owned by that node, (nil, true) is returned
+func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey rptypes.ValidatorPubkey, queryNodeAddr *common.Address) (*common.Address, bool) {
 
 	void, ok := e.minipoolIndex.Load(pubkey)
 	if !ok {
 		// Validator (hopefully) isn't a minipool
-		return nil
+		return nil, false
 	}
 
 	nodeAddr := void.(common.Address)
+
+	if queryNodeAddr != nil && !bytes.Equal(queryNodeAddr.Bytes(), nodeAddr.Bytes()) {
+		return nil, true
+	}
 
 	ptr, ok := e.nodeIndex.Load(nodeAddr)
 	if !ok {
@@ -423,13 +428,13 @@ func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey rptypes.ValidatorPubkey) *
 		e.logger.Error("Validator was in the minipool index, but not the node index",
 			zap.String("pubkey", pubkey.String()),
 			zap.String("node", nodeAddr.String()))
-		return nil
+		return nil, false
 	}
 
 	nodeInfo := ptr.(*nodeInfo)
 	if nodeInfo.inSmoothingPool {
-		return e.smoothingPool.Address
+		return e.smoothingPool.Address, false
 	}
 
-	return &nodeInfo.feeDistributor
+	return &nodeInfo.feeDistributor, false
 }

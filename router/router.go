@@ -2,6 +2,7 @@ package router
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/Rocket-Pool-Rescue-Node/credentials/pb"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
 	rptypes "github.com/rocket-pool/rocketpool-go/types"
 	"go.uber.org/zap"
@@ -30,6 +32,10 @@ type ProxyRouter struct {
 	CM                 *credentials.CredentialManager
 	AuthValidityWindow time.Duration
 }
+
+// Used to avoid collisions in context.WithValue()
+// see: https://pkg.go.dev/context#WithValue
+type prContextKey string
 
 func cloneRequestBody(r *http.Request) (io.ReadCloser, error) {
 	// Read the body
@@ -76,6 +82,15 @@ func (pr *ProxyRouter) prepareBeaconProposer() http.HandlerFunc {
 			pr.Logger.Error("Error while querying CL for validator pubkeys", zap.Error(err))
 		}
 
+		// Grab the authorized node address
+		authedNode, ok := r.Context().Value(prContextKey("node")).([]byte)
+		if !ok {
+			pr.Logger.Warn("Unable to retrieve node address cached on request context")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		authedNodeAddr := common.BytesToAddress(authedNode)
+
 		// Iterate the results and check the fee recipients against our expected values
 		// Note: we iterate the map from the HTTP request to ensure every key is present in the
 		// response from the consensuslayer abstraction
@@ -89,9 +104,11 @@ func (pr *ProxyRouter) prepareBeaconProposer() http.HandlerFunc {
 			}
 
 			// Next we need to get the expected fee recipient for the pubkey
-			expectedFeeRecipient := pr.EL.ValidatorFeeRecipient(pubkey)
+			expectedFeeRecipient, unowned := pr.EL.ValidatorFeeRecipient(pubkey, &authedNodeAddr)
 			if expectedFeeRecipient == nil {
-				pr.Logger.Warn("Pubkey not found in EL cache. Not an RP validator?", zap.String("key", pubkey.String()))
+				pr.Logger.Warn("Pubkey not found in EL cache, or wasn't owned by the user",
+					zap.String("key", pubkey.String()),
+					zap.Bool("someone else's validator", unowned))
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
@@ -127,6 +144,15 @@ func (pr *ProxyRouter) registerValidator() http.HandlerFunc {
 			return
 		}
 
+		// Grab the authorized node address
+		authedNode, ok := r.Context().Value(prContextKey("node")).([]byte)
+		if !ok {
+			pr.Logger.Warn("Unable to retrieve node address cached on request context")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		authedNodeAddr := common.BytesToAddress(authedNode)
+
 		for _, validator := range validators {
 			pubkeyStr := strings.TrimPrefix(validator.Message.Pubkey, "0x")
 
@@ -138,9 +164,11 @@ func (pr *ProxyRouter) registerValidator() http.HandlerFunc {
 			}
 
 			// Grab the expected fee recipient for the pubkey
-			expectedFeeRecipient := pr.EL.ValidatorFeeRecipient(pubkey)
+			expectedFeeRecipient, unowned := pr.EL.ValidatorFeeRecipient(pubkey, &authedNodeAddr)
 			if expectedFeeRecipient == nil {
-				pr.Logger.Warn("Pubkey not found in EL cache. Not an RP validator?", zap.String("key", pubkey.String()))
+				pr.Logger.Warn("Pubkey not found in EL cache, or wasn't owned by the user",
+					zap.String("key", pubkey.String()),
+					zap.Bool("someone else's validator", unowned))
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
@@ -229,7 +257,9 @@ func (pr *ProxyRouter) authenticationMiddleware(next http.Handler) http.Handler 
 
 		// If auth succeeds:
 		pr.Logger.Debug("Proxying Guarded URI", zap.String("uri", r.RequestURI))
-		next.ServeHTTP(w, r)
+		// Add the node address to the request context
+		ctx := context.WithValue(r.Context(), prContextKey("node"), nodeID)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
