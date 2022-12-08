@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Rocket-Pool-Rescue-Node/credentials"
+	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/api"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/router"
@@ -26,6 +27,7 @@ type config struct {
 	BeaconURL          *url.URL
 	ExecutionURL       *url.URL
 	ListenAddr         string
+	APIListenAddr      string
 	RocketStorageAddr  string
 	CredentialSecret   string
 	AuthValidityWindow time.Duration
@@ -49,6 +51,7 @@ func initFlags() (config config) {
 	bnURLFlag := flag.String("bn-url", "", "URL to the beacon node to proxy, eg, http://localhost:5052")
 	ecURLFlag := flag.String("ec-url", "", "URL to the execution client to use, eg, http://localhost:8545")
 	addrURLFlag := flag.String("addr", "0.0.0.0:80", "Address on which to reply to HTTP requests")
+	apiAddrURLFlag := flag.String("api-addr", "0.0.0.0:8080", "Address on which to reply to gRPC API requests")
 	rocketStorageAddrFlag := flag.String("rocketstorage-addr", "0x1d8f8f00cfa6758d7bE78336684788Fb0ee0Fa46", "Address of the Rocket Storage contract. Defaults to mainnet")
 	debug := flag.Bool("debug", false, "Whether to enable verbose logging")
 	credentialSecretFlag := flag.String("hmac-secret", "test-secret", "The secret to use for HMAC")
@@ -113,6 +116,12 @@ func initFlags() (config config) {
 		return
 	}
 
+	if *apiAddrURLFlag == "" {
+		fmt.Fprintf(os.Stderr, "Invalid -api-addr:\n")
+		os.Exit(1)
+		return
+	}
+
 	if *credentialSecretFlag == "" {
 		fmt.Fprintf(os.Stderr, "Invalid -hmac-secret:\n")
 		os.Exit(1)
@@ -133,6 +142,7 @@ func initFlags() (config config) {
 	}
 
 	config.ListenAddr = *addrURLFlag
+	config.APIListenAddr = *apiAddrURLFlag
 	config.RocketStorageAddr = *rocketStorageAddrFlag
 	config.CredentialSecret = *credentialSecretFlag
 	return
@@ -195,10 +205,10 @@ func main() {
 	server := http.Server{}
 	go func() {
 		router := &router.ProxyRouter{
-			EL:     el,
-			CL:     cl,
-			CM:     cm,
-			Logger: logger,
+			EL:                 el,
+			CL:                 cl,
+			CM:                 cm,
+			Logger:             logger,
 			AuthValidityWindow: config.AuthValidityWindow,
 		}
 		router.Init(config.BeaconURL)
@@ -209,12 +219,21 @@ func main() {
 		serverWaitGroup.Done()
 	}()
 
+	api := api.NewAPI(config.APIListenAddr, el, logger)
+	if err := api.Init(); err != nil {
+		logger.Error("Unable to start grpc server", zap.Error(err))
+		os.Exit(1)
+		return
+	}
+
 	blockUntilSIGINT()
 
 	// Shut down gracefully
 	logger.Debug("Received SIGINT, shutting down")
 	server.Shutdown(context.Background())
 	listener.Close()
+
+	api.Deinit()
 
 	// Wait for the listener/server to exit
 	serverWaitGroup.Wait()

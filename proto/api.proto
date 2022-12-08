@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package pb;
+
+option go_package = "./pb";
+
+service Api {
+
+	rpc GetRocketPoolNodes (RocketPoolNodesRequest) returns (RocketPoolNodes) {}
+}
+
+message RocketPoolNodesRequest {
+
+}
+
+message RocketPoolNodes {
+	repeated bytes node_ids = 1;
+}
