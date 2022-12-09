@@ -55,9 +55,11 @@ func (a *API) Init() error {
 	pb.RegisterApiServer(a.server, a)
 
 	a.Logger.Info("Starting grpc server", zap.String("url", a.ListenAddr))
-	if err := a.server.Serve(a.listener); err != nil {
-		return err
-	}
+	go func() {
+		if err := a.server.Serve(a.listener); err != nil {
+			a.Logger.Panic("gRPC server stopped", zap.Error(err))
+		}
+	}()
 
 	return nil
 }

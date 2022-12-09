@@ -226,10 +226,11 @@ func main() {
 		return
 	}
 
+	logger.Debug("Trapping SIGINT")
 	blockUntilSIGINT()
 
 	// Shut down gracefully
-	logger.Debug("Received SIGINT, shutting down")
+	logger.Info("Received SIGINT, shutting down")
 	server.Shutdown(context.Background())
 	listener.Close()
 

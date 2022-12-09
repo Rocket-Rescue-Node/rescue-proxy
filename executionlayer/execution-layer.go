@@ -21,6 +21,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const reconnectRetries = 10
+
 type nodeInfo struct {
 	inSmoothingPool bool
 	feeDistributor  common.Address
@@ -53,6 +55,13 @@ type ExecutionLayer struct {
 	smoothingPoolStatusChangedTopic common.Hash
 	minipoolLaunchedTopic           common.Hash
 
+	// The "topics" and contract filter for the events we subscribe to
+	query ethereum.FilterQuery
+
+	// Channels for those subscriptions
+	events     chan types.Log
+	newHeaders chan *types.Header
+
 	// A long-lived index of pubkey->node address
 	//
 	// If a guarded query contains a pubkey we've seen before, and the fee recipient is
@@ -76,6 +85,14 @@ type ExecutionLayer struct {
 
 	// ethclient subscription needs to be manually closed on shutdown
 	ethclientShutdownCb func()
+
+	// wg to be blocked on to let pending events be processed for graceful shutdown
+	wg sync.WaitGroup
+
+	// Sometimes, we get errors from the subscription error channels on shutdown-
+	// presumably, the Unsubscribe() call is less graceful than ideal.
+	// Set this to true before calling Unsubscribe() so we can ignore subsequent errors
+	shutdown bool
 }
 
 // NewExecutionLayer creates an ExecutionLayer with the provided ec URL, rocketStorage address, and logger
@@ -84,9 +101,6 @@ func NewExecutionLayer(ecURL *url.URL, rocketStorageAddr string, logger *zap.Log
 	out.logger = logger
 	out.minipoolIndex = &sync.Map{}
 	out.nodeIndex = &sync.Map{}
-	out.nodeRegisteredTopic = crypto.Keccak256Hash([]byte("NodeRegistered(address,uint256)"))
-	out.smoothingPoolStatusChangedTopic = crypto.Keccak256Hash([]byte("NodeSmoothingPoolStateChanged(address,bool)"))
-	out.minipoolLaunchedTopic = crypto.Keccak256Hash([]byte("MinipoolCreated(address,address,uint256)"))
 	out.rocketStorageAddr = rocketStorageAddr
 	out.ecURL = ecURL
 
@@ -201,7 +215,8 @@ out:
 // All of this is only necessary because SubscribeFilterLogs doesn't seem to send old events, no matter
 // what FromBlock is set to.
 func (e *ExecutionLayer) backfillEvents() error {
-	start := big.NewInt(0).Set(e.highestBlock)
+	// Since highestBlock was the highest processed block, start one block after
+	start := big.NewInt(0).Add(e.highestBlock, big.NewInt(1))
 
 	// Get current block
 	header, err := e.client.HeaderByNumber(context.Background(), nil)
@@ -211,7 +226,7 @@ func (e *ExecutionLayer) backfillEvents() error {
 	stop := header.Number
 
 	// Make sure there is actually a gap before backfilling
-	if stop.Cmp(start) < 1 {
+	if stop.Cmp(start) < 0 {
 		e.logger.Debug("No blocks to backfill events from")
 		return nil
 	}
@@ -219,9 +234,8 @@ func (e *ExecutionLayer) backfillEvents() error {
 	missedEvents, err := e.client.FilterLogs(context.Background(), ethereum.FilterQuery{
 		// We only want events for 2 contracts
 		Addresses: []common.Address{*e.rocketMinipoolManager.Address, *e.rocketNodeManager.Address},
-		// Since highestBlock was the highest processed block, start one block after
-		FromBlock: big.NewInt(0).Add(start, big.NewInt(1)),
-		// The current block is actually the last processed block, so play any events from it as well
+		FromBlock: start,
+		// The current block is actually the last block processed by the EC, so play any events from it as well
 		// The range is inclusive
 		ToBlock: stop,
 		// And we only care about 3 event types
@@ -236,16 +250,75 @@ func (e *ExecutionLayer) backfillEvents() error {
 		e.handleEvent(event)
 	}
 
-	e.logger.Debug("Backfilled events", zap.Int("events", len(missedEvents)), zap.Uint64("blocks", stop.Sub(stop, start).Uint64()))
+	// Force the highest block to update, as we may not have received any events in it, which would have updated it
+	e.highestBlock = stop
+
+	delta := big.NewInt(0).Sub(stop, start)
+	
+	// If start == stop we actually fill that one block, so add one to delta
+	delta = delta.Add(delta, big.NewInt(1))
+
+	e.logger.Debug("Backfilled events", zap.Int("events", len(missedEvents)),
+		zap.Uint64("blocks", delta.Uint64()),
+		zap.Int64("start", start.Int64()), zap.Int64("stop", stop.Int64()))
 	return nil
+}
+
+// Will likely attempt to reconnect, and will overwrite the pointers passed with the new subscription objects
+func (e *ExecutionLayer) handleSubscriptionError(err error, logEventSub **ethereum.Subscription, headerSub **ethereum.Subscription) {
+	if e.shutdown {
+		return
+	}
+
+	e.logger.Warn("Error received from eth client subscription", zap.Error(err))
+	// Attempt to reconnect `reconnectRetries` times with steadily increasing waits
+	for i := 0; i < reconnectRetries; i++ {
+		e.logger.Warn("Attempting to reconnect", zap.Int("attempt", i+1))
+		s, err := e.client.SubscribeFilterLogs(context.Background(), e.query, e.events)
+		if err == nil {
+			e.logger.Warn("Reconnected", zap.Int("attempt", i+1))
+
+			// Resubscribe to new headers - no retries
+			h, err := e.client.SubscribeNewHead(context.Background(), e.newHeaders)
+			if err != nil {
+				e.logger.Warn("Couldn't resubscribe to block headers after reconnecting")
+				break
+			}
+
+			e.setECShutdownCb(func() {
+				s.Unsubscribe()
+				h.Unsubscribe()
+			})
+
+			// Now that we've reconnected, we need to backfill
+			err = e.backfillEvents()
+			if err != nil {
+				// Failed to backfill
+				e.logger.Panic("Couldn't backfill blocks after reconnecting to execution client")
+			}
+
+			*logEventSub = &s
+			*headerSub = &h
+			return
+		}
+
+		e.logger.Warn("Error trying to reconnect to execution client", zap.Error(err))
+		time.Sleep(time.Duration(i) * (5 * time.Second))
+	}
+
+	// Failed to reconnect after 10 tries
+	e.logger.Panic("Couldn't re-establish eth client connection")
 }
 
 // Registers to receive the events we care about
 func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 	var err error
 
+	e.nodeRegisteredTopic = crypto.Keccak256Hash([]byte("NodeRegistered(address,uint256)"))
+	e.smoothingPoolStatusChangedTopic = crypto.Keccak256Hash([]byte("NodeSmoothingPoolStateChanged(address,bool)"))
+	e.minipoolLaunchedTopic = crypto.Keccak256Hash([]byte("MinipoolCreated(address,address,uint256)"))
 	// Subscribe to events from rocketNodeManager and rocketMinipoolManager
-	query := ethereum.FilterQuery{
+	e.query = ethereum.FilterQuery{
 		Addresses: []common.Address{*e.rocketMinipoolManager.Address, *e.rocketNodeManager.Address},
 		Topics:    [][]common.Hash{[]common.Hash{e.nodeRegisteredTopic, e.smoothingPoolStatusChangedTopic, e.minipoolLaunchedTopic}},
 	}
@@ -254,8 +327,14 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 	// TODO: If we add snapshots, save the highest block of the snapshot and start from there
 	e.highestBlock = opts.BlockNumber
 
-	events := make(chan types.Log)
-	sub, err := e.client.SubscribeFilterLogs(context.Background(), query, events)
+	e.events = make(chan types.Log, 32)
+	sub, err := e.client.SubscribeFilterLogs(context.Background(), e.query, e.events)
+	if err != nil {
+		return err
+	}
+
+	e.newHeaders = make(chan *types.Header, 32)
+	newHeadSub, err := e.client.SubscribeNewHead(context.Background(), e.newHeaders)
 	if err != nil {
 		return err
 	}
@@ -270,48 +349,65 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 	}
 
 	// Make sure we can unsubscribe on shutdown
-	e.setECShutdownCb(sub.Unsubscribe)
+	e.setECShutdownCb(func() {
+		sub.Unsubscribe()
+		newHeadSub.Unsubscribe()
+	})
 
 	// Start listening for events in a separate routine
-	go func(subscription *ethereum.Subscription) {
+	go func(logSubscription *ethereum.Subscription, newHeadSubscription *ethereum.Subscription) {
+		var noMoreEvents bool
+		var noMoreHeaders bool
+		e.wg.Add(1)
 		for {
+
 			select {
-			case err := <-(*subscription).Err():
-				e.logger.Warn("Error received from eth client subscription", zap.Error(err))
-				// Attempt to reconnect 10 times with steadily increasing waits
-				reconnected := false
-				for i := 0; i < 10; i++ {
-					e.logger.Warn("Attempting to reconnect", zap.Int("attempt", i+1))
-					s, err := e.client.SubscribeFilterLogs(context.Background(), query, events)
-					if err == nil {
-						e.logger.Warn("Reconnected", zap.Int("attempt", i+1))
-						e.setECShutdownCb(s.Unsubscribe)
-						reconnected = true
-						subscription = &s
-						break
-					}
-
-					e.logger.Warn("Error trying to reconnect to execution client", zap.Error(err))
-					time.Sleep(time.Duration(i) * (5 * time.Second))
+			case err := <-(*logSubscription).Err():
+				(*newHeadSubscription).Unsubscribe()
+				e.handleSubscriptionError(err, &logSubscription, &newHeadSubscription)
+				break
+			case err := <-(*newHeadSubscription).Err():
+				(*logSubscription).Unsubscribe()
+				e.handleSubscriptionError(err, &logSubscription, &newHeadSubscription)
+				break
+			case event, ok := <-e.events:
+				noMoreEvents = !ok
+				if noMoreEvents {
+					break
 				}
-
-				if !reconnected {
-					// Failed to reconnect after 10 tries
-					e.logger.Panic("Couldn't re-establish eth client connection")
-				}
-
-				// Now that we've reconnected, we need to backfill
-				err = e.backfillEvents()
-				if err != nil {
-					// Failed to backfill
-					e.logger.Panic("Couldn't backfill blocks after reconnecting to execution client")
-				}
-
-			case event := <-events:
 				e.handleEvent(event)
+			case newHeader, ok := <-e.newHeaders:
+				noMoreHeaders = !ok
+				if noMoreHeaders {
+					break
+				}
+
+				// Make sure we don't rewind, in the edge case where many events queue up
+				// and update highestBlock, then we fall through to this block and wind
+				// it back.
+				if e.highestBlock.Cmp(newHeader.Number) >= 0 {
+					continue
+				}
+				// Just advance highest block
+				e.logger.Debug("New block received",
+					zap.Int64("new height", newHeader.Number.Int64()),
+					zap.Int64("old height", e.highestBlock.Int64()))
+				e.highestBlock = newHeader.Number
+
+				// Continue here to check for new events
+				continue
 			}
+
+			// If we didn't process any events in the select and the channels are closed,
+			// no new events will come, so break the loop
+			if noMoreEvents && noMoreHeaders {
+				e.logger.Debug("Finished processing events", zap.Int64("height", e.highestBlock.Int64()))
+				break
+			}
+
 		}
-	}(&sub)
+		e.wg.Done()
+	}(&sub, &newHeadSub)
 
 	return nil
 }
@@ -358,7 +454,7 @@ func (e *ExecutionLayer) Init() error {
 	if err != nil {
 		return err
 	}
-	e.logger.Debug("Found nodes to preload", zap.Int("count", len(nodes)))
+	e.logger.Debug("Found nodes to preload", zap.Int("count", len(nodes)), zap.Int64("block", opts.BlockNumber.Int64()))
 
 	minipoolCount := 0
 	for _, n := range nodes {
@@ -403,14 +499,18 @@ func (e *ExecutionLayer) Deinit() {
 	if e.ethclientShutdownCb == nil {
 		return
 	}
+	e.shutdown = true
 	e.ethclientShutdownCb()
+	close(e.events)
+	close(e.newHeaders)
+	e.wg.Wait()
 }
 
 type ForEachNodeClosure func(common.Address) bool
 
 // ForEachNode calls the provided closure with the address of every rocket pool node the ExecutionLayer has observed
 func (e *ExecutionLayer) ForEachNode(closure ForEachNodeClosure) {
-	e.nodeIndex.Range(func (k any, value any) bool {
+	e.nodeIndex.Range(func(k any, value any) bool {
 		return closure(k.(common.Address))
 	})
 }
