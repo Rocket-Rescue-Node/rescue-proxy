@@ -177,7 +177,7 @@ func main() {
 	}
 
 	// Connect to and initialize the execution layer
-	el := executionlayer.NewExecutionLayer(config.ExecutionURL, config.RocketStorageAddr, logger)
+	el := executionlayer.NewExecutionLayer(config.ExecutionURL, config.RocketStorageAddr, &executionlayer.MapsCache{}, logger)
 
 	err = el.Init()
 	if err != nil {
