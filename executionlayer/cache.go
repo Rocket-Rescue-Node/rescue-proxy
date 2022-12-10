@@ -15,14 +15,15 @@ func (e *NotFoundError) Error() string {
 	return "Key not found in cache"
 }
 
-type cache interface {
+type Cache interface {
 	init() error
 	getMinipoolNode(rptypes.ValidatorPubkey) (common.Address, error)
 	addMinipoolNode(rptypes.ValidatorPubkey, common.Address) error
 	getNodeInfo(common.Address) (*nodeInfo, error)
 	addNodeInfo(common.Address, *nodeInfo) error
-	forEachNode(ForEachNodeClosure)
+	forEachNode(ForEachNodeClosure) error
 	setHighestBlock(*big.Int)
 	getHighestBlock() *big.Int
-	deinit()
+	deinit() error
+	reset() error
 }

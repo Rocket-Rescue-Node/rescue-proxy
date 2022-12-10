@@ -82,10 +82,12 @@ func (m *MapsCache) addNodeInfo(nodeAddr common.Address, node *nodeInfo) error {
 	return nil
 }
 
-func (m *MapsCache) forEachNode(closure ForEachNodeClosure) {
+func (m *MapsCache) forEachNode(closure ForEachNodeClosure) error {
 	m.nodeIndex.Range(func(k any, value any) bool {
 		return closure(k.(common.Address))
 	})
+
+	return nil
 }
 
 func (m *MapsCache) setHighestBlock(block *big.Int) {
@@ -103,6 +105,11 @@ func (m *MapsCache) getHighestBlock() *big.Int {
 	return m.highestBlock
 }
 
-func (m *MapsCache) deinit() {
-	return
+func (m *MapsCache) deinit() error {
+	return nil
+}
+
+func (m *MapsCache) reset() error {
+	m.init()
+	return nil
 }
