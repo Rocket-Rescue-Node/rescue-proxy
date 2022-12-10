@@ -22,6 +22,7 @@ import (
 )
 
 const reconnectRetries = 10
+const maxCacheAgeBlocks = 64
 
 type nodeInfo struct {
 	inSmoothingPool bool
@@ -63,7 +64,7 @@ type ExecutionLayer struct {
 	newHeaders chan *types.Header
 
 	// Somewhere to store chain data we care about
-	cache cache
+	cache Cache
 
 	// ethclient subscription needs to be manually closed on shutdown
 	ethclientShutdownCb func()
@@ -78,7 +79,7 @@ type ExecutionLayer struct {
 }
 
 // NewExecutionLayer creates an ExecutionLayer with the provided ec URL, rocketStorage address, cache, and logger
-func NewExecutionLayer(ecURL *url.URL, rocketStorageAddr string, cache cache, logger *zap.Logger) *ExecutionLayer {
+func NewExecutionLayer(ecURL *url.URL, rocketStorageAddr string, cache Cache, logger *zap.Logger) *ExecutionLayer {
 	out := &ExecutionLayer{}
 	out.logger = logger
 	out.rocketStorageAddr = rocketStorageAddr
@@ -104,10 +105,17 @@ func (e *ExecutionLayer) handleNodeEvent(event types.Log) {
 
 	// Check if it's a node registration
 	if bytes.Equal(event.Topics[0].Bytes(), e.nodeRegisteredTopic.Bytes()) {
+		var err error
+
+		addr := common.BytesToAddress(event.Topics[1].Bytes())
 		// When we see new nodes register, assume they aren't in the SP and add to index
 		nodeInfo := &nodeInfo{}
-		addr := common.BytesToAddress(event.Topics[1].Bytes())
-		err := e.cache.addNodeInfo(addr, nodeInfo)
+		// Get their fee distributor address
+		nodeInfo.feeDistributor, err = node.GetDistributorAddress(e.rp, addr, nil)
+		if err != nil {
+			e.logger.Warn("Couldn't get fee distributor address for newly registered node", zap.String("node", addr.String()))
+		}
+		err = e.cache.addNodeInfo(addr, nodeInfo)
 		if err != nil {
 			e.logger.Error("Failed to add nodeInfo to cache", zap.Error(err))
 		}
@@ -141,14 +149,14 @@ func (e *ExecutionLayer) handleNodeEvent(event types.Log) {
 				e.logger.Warn("Couldn't compute fee distributor address for unknown node", zap.String("node", nodeAddr.String()))
 			}
 
-			err := e.cache.addNodeInfo(nodeAddr, n)
-			if err != nil {
-				e.logger.Panic("Unable to add nodeInfo to cache", zap.String("node", nodeAddr.String()), zap.Error(err))
-			}
 		}
 
 		e.logger.Debug("Node SP status changed", zap.String("addr", nodeAddr.String()), zap.Bool("in_sp", status.Cmp(big.NewInt(1)) == 0))
 		n.inSmoothingPool = status.Cmp(big.NewInt(1)) == 0
+		err = e.cache.addNodeInfo(nodeAddr, n)
+		if err != nil {
+			e.logger.Error("Failed to add nodeInfo to cache", zap.Error(err))
+		}
 		return
 	}
 
@@ -318,8 +326,7 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 		Topics:    [][]common.Hash{[]common.Hash{e.nodeRegisteredTopic, e.smoothingPoolStatusChangedTopic, e.minipoolLaunchedTopic}},
 	}
 
-	// Set highestBlock to the same block that we used to build the cache from cold
-	// TODO: If we add snapshots, save the highest block of the snapshot and start from there
+	// Set highestBlock to the cache's highestBlock, since it was either loaded or warmed up already
 	e.cache.setHighestBlock(opts.BlockNumber)
 
 	e.events = make(chan types.Log, 32)
@@ -405,7 +412,10 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 func (e *ExecutionLayer) Init() error {
 	var err error
 
-	e.cache.init()
+	if err := e.cache.init(); err != nil {
+		return err
+	}
+	cacheBlock := e.cache.getHighestBlock()
 
 	e.client, err = ethclient.Dial(e.ecURL.String())
 	if err != nil {
@@ -415,13 +425,31 @@ func (e *ExecutionLayer) Init() error {
 	if err != nil {
 		return err
 	}
+
 	// First, get the current block
 	header, err := e.client.HeaderByNumber(context.Background(), nil)
 	if err != nil {
 		return err
 	}
 
-	// Create opts to query state at that block
+	// Subtract the cache's highest block from the current block
+	delta := big.NewInt(0)
+	delta.Sub(header.Number, cacheBlock)
+	if delta.Int64() < 0 || delta.Int64() > maxCacheAgeBlocks {
+		// Reset caches from the future and the distance past
+		e.logger.Warn("Cache is stale or from the future, resetting...",
+			zap.Int64("cache block", cacheBlock.Int64()),
+			zap.Int64("current block", header.Number.Int64()),
+			zap.Int64("delta", delta.Int64()))
+		err = e.cache.reset()
+		if err != nil {
+			return err
+		}
+
+		cacheBlock = big.NewInt(0)
+	}
+
+	// Create opts to query state at the latest block
 	opts := &bind.CallOpts{BlockNumber: header.Number}
 
 	// Load contracts
@@ -439,6 +467,15 @@ func (e *ExecutionLayer) Init() error {
 	if err != nil {
 		return err
 	}
+
+	// If the cache is warm, skip the slow path
+	if cacheBlock.Cmp(big.NewInt(0)) != 0 {
+		// Update opts to indicate that we need to backfill from after
+		// the cache block instead
+		opts.BlockNumber = cacheBlock
+		return e.ecEventsConnect(opts)
+	}
+	e.logger.Warn("Warming up the cache")
 
 	// Get all nodes at the given block
 	nodes, err := node.GetNodes(e.rp, opts)
@@ -486,9 +523,7 @@ func (e *ExecutionLayer) Init() error {
 	e.logger.Debug("Pre-loaded nodes and minipools", zap.Int("nodes", len(nodes)), zap.Int("minipools", minipoolCount))
 
 	// Listen for updates
-	e.ecEventsConnect(opts)
-
-	return nil
+	return e.ecEventsConnect(opts)
 }
 
 // Deinit shuts down this ExecutionLayer
@@ -501,7 +536,10 @@ func (e *ExecutionLayer) Deinit() {
 	close(e.events)
 	close(e.newHeaders)
 	e.wg.Wait()
-	e.cache.deinit()
+	err := e.cache.deinit()
+	if err != nil {
+		e.logger.Error("error while stopping the cache", zap.Error(err))
+	}
 }
 
 // ForEachNode calls the provided closure with the address of every rocket pool node the ExecutionLayer has observed
