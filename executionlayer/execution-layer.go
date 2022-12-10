@@ -62,26 +62,8 @@ type ExecutionLayer struct {
 	events     chan types.Log
 	newHeaders chan *types.Header
 
-	// A long-lived index of pubkey->node address
-	//
-	// If a guarded query contains a pubkey we've seen before, and the fee recipient is
-	// the smoothing pool, no further validation is needed, so we can exit early based
-	// on membership in this map.
-	//
-	// Since this index is expected to strictly grow, we can use sync.Map to deal with
-	// concurrent access. Elements are only inserted, never deleted.
-	minipoolIndex *sync.Map
-
-	// We need to store each node's smoothing pool status and fee recipient address.
-	// We will subscribe to rocketNodeManager's events stream, which will notify us of
-	// changes- to keep map contention down, we will use pointers as elements.
-	// Ergo, this is a map of node address -> *Node
-	nodeIndex *sync.Map
-
-	// We need to detect gaps in the event stream when there are connection issues, and
-	// backfill missing data, so we keep track of the highest block for which we received
-	// an event here.
-	highestBlock *big.Int
+	// Somewhere to store chain data we care about
+	cache cache
 
 	// ethclient subscription needs to be manually closed on shutdown
 	ethclientShutdownCb func()
@@ -95,14 +77,13 @@ type ExecutionLayer struct {
 	shutdown bool
 }
 
-// NewExecutionLayer creates an ExecutionLayer with the provided ec URL, rocketStorage address, and logger
-func NewExecutionLayer(ecURL *url.URL, rocketStorageAddr string, logger *zap.Logger) *ExecutionLayer {
+// NewExecutionLayer creates an ExecutionLayer with the provided ec URL, rocketStorage address, cache, and logger
+func NewExecutionLayer(ecURL *url.URL, rocketStorageAddr string, cache cache, logger *zap.Logger) *ExecutionLayer {
 	out := &ExecutionLayer{}
 	out.logger = logger
-	out.minipoolIndex = &sync.Map{}
-	out.nodeIndex = &sync.Map{}
 	out.rocketStorageAddr = rocketStorageAddr
 	out.ecURL = ecURL
+	out.cache = cache
 
 	return out
 }
@@ -126,7 +107,10 @@ func (e *ExecutionLayer) handleNodeEvent(event types.Log) {
 		// When we see new nodes register, assume they aren't in the SP and add to index
 		nodeInfo := &nodeInfo{}
 		addr := common.BytesToAddress(event.Topics[1].Bytes())
-		e.nodeIndex.Store(addr, nodeInfo)
+		err := e.cache.addNodeInfo(addr, nodeInfo)
+		if err != nil {
+			e.logger.Error("Failed to add nodeInfo to cache", zap.Error(err))
+		}
 		e.logger.Debug("New node registered", zap.String("addr", addr.String()))
 		return
 	}
@@ -139,11 +123,14 @@ func (e *ExecutionLayer) handleNodeEvent(event types.Log) {
 		status := big.NewInt(0).SetBytes(event.Data)
 
 		// Attempt to load the node
-		ptr, ok := e.nodeIndex.Load(nodeAddr)
-		if ok {
-			n = ptr.(*nodeInfo)
-		} else {
-			var err error
+		n, err := e.cache.getNodeInfo(nodeAddr)
+		if err != nil {
+			_, ok := err.(*NotFoundError)
+
+			if !ok {
+				e.logger.Panic("Got an error from the cache while looking up a node",
+					zap.String("addr", nodeAddr.String()), zap.Error(err))
+			}
 
 			// Odd that we don't have this node already, but add it and carry on
 			e.logger.Warn("Unknown node updated its smoothing pool status", zap.String("addr", nodeAddr.String()))
@@ -152,6 +139,11 @@ func (e *ExecutionLayer) handleNodeEvent(event types.Log) {
 			n.feeDistributor, err = node.GetDistributorAddress(e.rp, nodeAddr, nil)
 			if err != nil {
 				e.logger.Warn("Couldn't compute fee distributor address for unknown node", zap.String("node", nodeAddr.String()))
+			}
+
+			err := e.cache.addNodeInfo(nodeAddr, n)
+			if err != nil {
+				e.logger.Panic("Unable to add nodeInfo to cache", zap.String("node", nodeAddr.String()), zap.Error(err))
 			}
 		}
 
@@ -183,7 +175,10 @@ func (e *ExecutionLayer) handleMinipoolEvent(event types.Log) {
 	}
 
 	// Finally, update the minipool index
-	e.minipoolIndex.Store(minipoolDetails.Pubkey, nodeAddr)
+	err = e.cache.addMinipoolNode(minipoolDetails.Pubkey, nodeAddr)
+	if err != nil {
+		e.logger.Warn("Error updating minipool cache", zap.Error(err))
+	}
 	e.logger.Debug("Added new minipool", zap.String("pubkey", minipoolDetails.Pubkey.String()), zap.String("node", nodeAddr.String()))
 }
 
@@ -204,7 +199,7 @@ func (e *ExecutionLayer) handleEvent(event types.Log) {
 	e.logger.Warn("Received event for unknown contract", zap.String("address", event.Address.String()))
 out:
 	// We should always update highestBlock when we receive any event
-	e.highestBlock = big.NewInt(int64(event.BlockNumber))
+	e.cache.setHighestBlock(big.NewInt(int64(event.BlockNumber)))
 }
 
 // Gets the current block and loads any events we missed between highestBlock and the current one
@@ -216,7 +211,7 @@ out:
 // what FromBlock is set to.
 func (e *ExecutionLayer) backfillEvents() error {
 	// Since highestBlock was the highest processed block, start one block after
-	start := big.NewInt(0).Add(e.highestBlock, big.NewInt(1))
+	start := big.NewInt(0).Add(e.cache.getHighestBlock(), big.NewInt(1))
 
 	// Get current block
 	header, err := e.client.HeaderByNumber(context.Background(), nil)
@@ -251,7 +246,7 @@ func (e *ExecutionLayer) backfillEvents() error {
 	}
 
 	// Force the highest block to update, as we may not have received any events in it, which would have updated it
-	e.highestBlock = stop
+	e.cache.setHighestBlock(stop)
 
 	delta := big.NewInt(0).Sub(stop, start)
 
@@ -322,7 +317,7 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 
 	// Set highestBlock to the same block that we used to build the cache from cold
 	// TODO: If we add snapshots, save the highest block of the snapshot and start from there
-	e.highestBlock = opts.BlockNumber
+	e.cache.setHighestBlock(opts.BlockNumber)
 
 	e.events = make(chan types.Log, 32)
 	sub, err := e.client.SubscribeFilterLogs(context.Background(), e.query, e.events)
@@ -379,17 +374,11 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 					break
 				}
 
-				// Make sure we don't rewind, in the edge case where many events queue up
-				// and update highestBlock, then we fall through to this block and wind
-				// it back.
-				if e.highestBlock.Cmp(newHeader.Number) >= 0 {
-					continue
-				}
 				// Just advance highest block
 				e.logger.Debug("New block received",
 					zap.Int64("new height", newHeader.Number.Int64()),
-					zap.Int64("old height", e.highestBlock.Int64()))
-				e.highestBlock = newHeader.Number
+					zap.Int64("old height", e.cache.getHighestBlock().Int64()))
+				e.cache.setHighestBlock(newHeader.Number)
 
 				// Continue here to check for new events
 				continue
@@ -398,7 +387,7 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 			// If we didn't process any events in the select and the channels are closed,
 			// no new events will come, so break the loop
 			if noMoreEvents && noMoreHeaders {
-				e.logger.Debug("Finished processing events", zap.Int64("height", e.highestBlock.Int64()))
+				e.logger.Debug("Finished processing events", zap.Int64("height", e.cache.getHighestBlock().Int64()))
 				break
 			}
 
@@ -412,6 +401,8 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 // Init creates and warms up the ExecutionLayer cache.
 func (e *ExecutionLayer) Init() error {
 	var err error
+
+	e.cache.init()
 
 	e.client, err = ethclient.Dial(e.ecURL.String())
 	if err != nil {
@@ -470,7 +461,10 @@ func (e *ExecutionLayer) Init() error {
 		}
 
 		// Store the smoothing pool state / fee distributor in the node index
-		e.nodeIndex.Store(n.Address, nodeInfo)
+		err = e.cache.addNodeInfo(n.Address, nodeInfo)
+		if err != nil {
+			return err
+		}
 
 		// Also grab their minipools
 		minipools, err := minipool.GetNodeMinipools(e.rp, n.Address, opts)
@@ -480,7 +474,10 @@ func (e *ExecutionLayer) Init() error {
 
 		minipoolCount += len(minipools)
 		for _, minipool := range minipools {
-			e.minipoolIndex.Store(minipool.Pubkey, n.Address)
+			err = e.cache.addMinipoolNode(minipool.Pubkey, n.Address)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	e.logger.Debug("Pre-loaded nodes and minipools", zap.Int("nodes", len(nodes)), zap.Int("minipools", minipoolCount))
@@ -501,35 +498,44 @@ func (e *ExecutionLayer) Deinit() {
 	close(e.events)
 	close(e.newHeaders)
 	e.wg.Wait()
+	e.cache.deinit()
 }
-
-type ForEachNodeClosure func(common.Address) bool
 
 // ForEachNode calls the provided closure with the address of every rocket pool node the ExecutionLayer has observed
 func (e *ExecutionLayer) ForEachNode(closure ForEachNodeClosure) {
-	e.nodeIndex.Range(func(k any, value any) bool {
-		return closure(k.(common.Address))
-	})
+	e.cache.forEachNode(closure)
 }
 
 // ValidatorFeeRecipient returns the expected fee recipient for a validator, or nil if the validator is "unknown"
 // If the queryNodeAddr is not nil and the validator is a minipool but isn't owned by that node, (nil, true) is returned
 func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey rptypes.ValidatorPubkey, queryNodeAddr *common.Address) (*common.Address, bool) {
 
-	void, ok := e.minipoolIndex.Load(pubkey)
-	if !ok {
+	nodeAddr, err := e.cache.getMinipoolNode(pubkey)
+	if err != nil {
+		_, ok := err.(*NotFoundError)
+		if !ok {
+			e.logger.Panic("error querying cache for minipool", zap.String("pubkey", pubkey.String()), zap.Error(err))
+		}
+
 		// Validator (hopefully) isn't a minipool
 		return nil, false
 	}
 
-	nodeAddr := void.(common.Address)
-
 	if queryNodeAddr != nil && !bytes.Equal(queryNodeAddr.Bytes(), nodeAddr.Bytes()) {
+		// This minipool was owned by someone else
 		return nil, true
 	}
 
-	ptr, ok := e.nodeIndex.Load(nodeAddr)
-	if !ok {
+	nodeInfo, err := e.cache.getNodeInfo(nodeAddr)
+	if err != nil {
+		_, ok := err.(*NotFoundError)
+		if !ok {
+			e.logger.Panic("error querying cache for node",
+				zap.String("pubkey", pubkey.String()),
+				zap.String("node", nodeAddr.String()),
+				zap.Error(err))
+		}
+
 		// Validator was a minipool, but we don't have a node record for it. This is bad.
 		e.logger.Error("Validator was in the minipool index, but not the node index",
 			zap.String("pubkey", pubkey.String()),
@@ -537,7 +543,6 @@ func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey rptypes.ValidatorPubkey, q
 		return nil, false
 	}
 
-	nodeInfo := ptr.(*nodeInfo)
 	if nodeInfo.inSmoothingPool {
 		return e.smoothingPool.Address, false
 	}
