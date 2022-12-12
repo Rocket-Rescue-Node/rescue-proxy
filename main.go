@@ -28,6 +28,8 @@ type config struct {
 	ExecutionURL       *url.URL
 	ListenAddr         string
 	APIListenAddr      string
+	GRPCListenAddr     string
+	GRPCBeaconAddr     string
 	RocketStorageAddr  string
 	CredentialSecret   string
 	AuthValidityWindow time.Duration
@@ -53,6 +55,8 @@ func initFlags() (config config) {
 	ecURLFlag := flag.String("ec-url", "", "URL to the execution client to use, eg, http://localhost:8545")
 	addrURLFlag := flag.String("addr", "0.0.0.0:80", "Address on which to reply to HTTP requests")
 	apiAddrURLFlag := flag.String("api-addr", "0.0.0.0:8080", "Address on which to reply to gRPC API requests")
+	grpcAddrFlag := flag.String("grpc-addr", "", "Address on which to reply to gRPC requests")
+	grpcBeaconAddrFlag := flag.String("grpc-beacon-addr", "", "Address to the beacon node to proxy for gRPC, eg, localhost:4000")
 	rocketStorageAddrFlag := flag.String("rocketstorage-addr", "0x1d8f8f00cfa6758d7bE78336684788Fb0ee0Fa46", "Address of the Rocket Storage contract. Defaults to mainnet")
 	debug := flag.Bool("debug", false, "Whether to enable verbose logging")
 	credentialSecretFlag := flag.String("hmac-secret", "test-secret", "The secret to use for HMAC")
@@ -145,6 +149,8 @@ func initFlags() (config config) {
 
 	config.ListenAddr = *addrURLFlag
 	config.APIListenAddr = *apiAddrURLFlag
+	config.GRPCListenAddr = *grpcAddrFlag
+	config.GRPCBeaconAddr = *grpcBeaconAddrFlag
 	config.RocketStorageAddr = *rocketStorageAddrFlag
 	config.CredentialSecret = *credentialSecretFlag
 	config.CachePath = *cachePathFlag
@@ -237,6 +243,24 @@ func main() {
 		logger.Error("Unable to start grpc server", zap.Error(err))
 		os.Exit(1)
 		return
+	}
+
+	if config.GRPCListenAddr != "" {
+		grpcRouter := &router.GRPCRouter{
+			EL: el,
+			CL: cl,
+			CM: cm,
+			Logger: logger,
+			AuthValidityWindow: config.AuthValidityWindow,
+		}
+
+		err := grpcRouter.Init(config.GRPCListenAddr, config.GRPCBeaconAddr)
+		if err != nil {
+			logger.Error("Unable to start grpc proxy", zap.Error(err))
+			os.Exit(1)
+			return
+		}
+		defer grpcRouter.Deinit()
 	}
 
 	logger.Debug("Trapping SIGINT")
