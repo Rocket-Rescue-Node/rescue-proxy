@@ -31,6 +31,7 @@ type config struct {
 	RocketStorageAddr  string
 	CredentialSecret   string
 	AuthValidityWindow time.Duration
+	CachePath          string
 }
 
 func initLogger(debug bool) error {
@@ -56,6 +57,7 @@ func initFlags() (config config) {
 	debug := flag.Bool("debug", false, "Whether to enable verbose logging")
 	credentialSecretFlag := flag.String("hmac-secret", "test-secret", "The secret to use for HMAC")
 	authValidityWindowFlag := flag.String("auth-valid-for", "360h", "The duration after which a credential should be considered invalid, eg, 360h for 15 days")
+	cachePathFlag := flag.String("cache-path", "", "A path to cache EL data in. Leave blank to disble caching.")
 
 	flag.Parse()
 
@@ -145,6 +147,7 @@ func initFlags() (config config) {
 	config.APIListenAddr = *apiAddrURLFlag
 	config.RocketStorageAddr = *rocketStorageAddrFlag
 	config.CredentialSecret = *credentialSecretFlag
+	config.CachePath = *cachePathFlag
 	return
 }
 
@@ -176,8 +179,18 @@ func main() {
 		return
 	}
 
+	// Pick a cache
+	var cache executionlayer.Cache
+	if config.CachePath == "" {
+		cache = &executionlayer.MapsCache{}
+	} else {
+		cache = &executionlayer.SqliteCache{
+			Path: config.CachePath,
+		}
+	}
+
 	// Connect to and initialize the execution layer
-	el := executionlayer.NewExecutionLayer(config.ExecutionURL, config.RocketStorageAddr, logger)
+	el := executionlayer.NewExecutionLayer(config.ExecutionURL, config.RocketStorageAddr, cache, logger)
 
 	err = el.Init()
 	if err != nil {

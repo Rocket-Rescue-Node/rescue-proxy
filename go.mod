@@ -3,11 +3,12 @@ module github.com/Rocket-Pool-Rescue-Node/rescue-proxy
 go 1.18
 
 require (
+	github.com/Rocket-Pool-Rescue-Node/credentials v0.0.0-20221203223955-cd59788bdc78
 	github.com/allegro/bigcache/v3 v3.1.0
 	github.com/attestantio/go-eth2-client v0.14.5
 	github.com/ethereum/go-ethereum v1.10.26
-	github.com/golang/protobuf v1.5.2
 	github.com/gorilla/mux v1.8.0
+	github.com/mattn/go-sqlite3 v1.11.0
 	github.com/rocket-pool/rocketpool-go v1.4.0
 	github.com/rs/zerolog v1.26.1
 	go.uber.org/zap v1.24.0
@@ -16,7 +17,6 @@ require (
 )
 
 require (
-	github.com/Rocket-Pool-Rescue-Node/credentials v0.0.0-20221203223955-cd59788bdc78 // indirect
 	github.com/StackExchange/wmi v0.0.0-20180116203802-5d049714c4a6 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.2.0 // indirect
 	github.com/deckarep/golang-set v1.8.0 // indirect
@@ -26,6 +26,7 @@ require (
 	github.com/go-ole/go-ole v1.2.1 // indirect
 	github.com/go-stack/stack v1.8.0 // indirect
 	github.com/goccy/go-yaml v1.9.2 // indirect
+	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/uuid v1.2.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/hashicorp/go-version v1.6.0 // indirect
