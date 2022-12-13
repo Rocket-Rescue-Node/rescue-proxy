@@ -82,22 +82,23 @@ const pubkeyBytes = 48
 
 // GetValidatorPubkey maps a validator index to a pubkey.
 // It caches responses from the beacon client in memory for an arbitrary amount of time to save resources.
-func (c *ConsensusLayer) GetValidatorPubkey(validatorIndices []string) (map[string]*rptypes.ValidatorPubkey, error) {
+func (c *ConsensusLayer) GetValidatorPubkey(validatorIndices []string) (map[string]rptypes.ValidatorPubkey, error) {
 
 	// Pre-allocate the retval based on the argument length
-	out := make(map[string]*rptypes.ValidatorPubkey, len(validatorIndices))
+	out := make(map[string]rptypes.ValidatorPubkey, len(validatorIndices))
 	missing := make([]phase0.ValidatorIndex, 0, len(validatorIndices))
 
 	for _, validatorIndex := range validatorIndices {
 		// Check the cache first
 		pubkey, err := c.pubkeyCache.Get(validatorIndex)
-		if len(pubkey) != pubkeyBytes {
-			c.logger.Warn("Invalid pubkey from beacon node", zap.String("key", hex.EncodeToString(pubkey)))
-			continue
-		}
 		if err == nil {
+			if len(pubkey) != pubkeyBytes {
+				c.logger.Warn("Invalid pubkey from beacon node", zap.String("key", hex.EncodeToString(pubkey)))
+				continue
+			}
 			// Add the pubkey to the output. We have to cast it to an array, but the length is correct (see above)
-			out[validatorIndex] = (*rptypes.ValidatorPubkey)(pubkey)
+			out[validatorIndex] = *(*rptypes.ValidatorPubkey)(pubkey)
+			c.logger.Debug("Cache hit", zap.String("validator", validatorIndex))
 		} else {
 			// An error means the record wasn't in the cache
 			// Add the index to the list to be queried against the BN
@@ -106,6 +107,7 @@ func (c *ConsensusLayer) GetValidatorPubkey(validatorIndices []string) (map[stri
 				c.logger.Warn("Invalid validator index", zap.String("index", validatorIndex))
 			}
 			missing = append(missing, phase0.ValidatorIndex(index))
+			c.logger.Debug("Cache miss", zap.String("validator", validatorIndex))
 		}
 	}
 
@@ -122,7 +124,7 @@ func (c *ConsensusLayer) GetValidatorPubkey(validatorIndices []string) (map[stri
 	for index, validator := range resp {
 		strIndex := strconv.FormatUint(uint64(index), 10)
 		pubkey := rptypes.ValidatorPubkey(validator.Validator.PublicKey)
-		out[strIndex] = &pubkey
+		out[strIndex] = pubkey
 
 		// Add it to the cache. Ignore errors, we can always look the key up later
 		_ = c.pubkeyCache.Set(strIndex, pubkey[:])
