@@ -8,10 +8,13 @@ require (
 	github.com/ethereum/go-ethereum v1.10.26
 	github.com/gorilla/mux v1.8.0
 	github.com/rocket-pool/rocketpool-go v1.4.0
+	github.com/rs/zerolog v1.26.1
 	go.uber.org/zap v1.24.0
+	google.golang.org/protobuf v1.28.1
 )
 
 require (
+	github.com/Rocket-Pool-Rescue-Node/credentials v0.0.0-20221203223955-cd59788bdc78 // indirect
 	github.com/StackExchange/wmi v0.0.0-20180116203802-5d049714c4a6 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.2.0 // indirect
 	github.com/deckarep/golang-set v1.8.0 // indirect
@@ -33,7 +36,6 @@ require (
 	github.com/prysmaticlabs/go-bitfield v0.0.0-20210809151128-385d8c5e3fb7 // indirect
 	github.com/r3labs/sse/v2 v2.7.4 // indirect
 	github.com/rjeczalik/notify v0.9.1 // indirect
-	github.com/rs/zerolog v1.26.1 // indirect
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect
 	github.com/tklauser/go-sysconf v0.3.5 // indirect
 	github.com/tklauser/numcpus v0.2.2 // indirect
