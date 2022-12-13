@@ -257,10 +257,10 @@ func main() {
 
 	if config.GRPCListenAddr != "" {
 		grpcRouter := &router.GRPCRouter{
-			EL: el,
-			CL: cl,
-			CM: cm,
-			Logger: logger,
+			EL:                 el,
+			CL:                 cl,
+			CM:                 cm,
+			Logger:             logger,
 			AuthValidityWindow: config.AuthValidityWindow,
 		}
 

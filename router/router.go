@@ -79,6 +79,8 @@ func (pr *ProxyRouter) prepareBeaconProposer() http.HandlerFunc {
 		pubkeyMap, err := pr.CL.GetValidatorPubkey(indices)
 		if err != nil {
 			pr.Logger.Error("Error while querying CL for validator pubkeys", zap.Error(err))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 
 		// Grab the authorized node address
