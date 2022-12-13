@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"time"
 
 	"github.com/Rocket-Pool-Rescue-Node/credentials"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
@@ -22,11 +23,12 @@ import (
 var logger *zap.Logger
 
 type config struct {
-	BeaconURL         *url.URL
-	ExecutionURL      *url.URL
-	ListenAddr        string
-	RocketStorageAddr string
-	CredentialSecret  string
+	BeaconURL          *url.URL
+	ExecutionURL       *url.URL
+	ListenAddr         string
+	RocketStorageAddr  string
+	CredentialSecret   string
+	AuthValidityWindow time.Duration
 }
 
 func initLogger(debug bool) error {
@@ -50,6 +52,7 @@ func initFlags() (config config) {
 	rocketStorageAddrFlag := flag.String("rocketstorage-addr", "0x1d8f8f00cfa6758d7bE78336684788Fb0ee0Fa46", "Address of the Rocket Storage contract. Defaults to mainnet")
 	debug := flag.Bool("debug", false, "Whether to enable verbose logging")
 	credentialSecretFlag := flag.String("hmac-secret", "test-secret", "The secret to use for HMAC")
+	authValidityWindowFlag := flag.String("auth-valid-for", "360h", "The duration after which a credential should be considered invalid, eg, 360h for 15 days")
 
 	flag.Parse()
 
@@ -112,6 +115,21 @@ func initFlags() (config config) {
 
 	if *credentialSecretFlag == "" {
 		fmt.Fprintf(os.Stderr, "Invalid -hmac-secret:\n")
+		os.Exit(1)
+		return
+	}
+
+	if *authValidityWindowFlag == "" {
+		fmt.Fprintf(os.Stderr, "Invalid -auth-valid-for:\n")
+		os.Exit(1)
+		return
+	}
+
+	config.AuthValidityWindow, err = time.ParseDuration(*authValidityWindowFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid -auth-valid-for:\n%v\n", err)
+		os.Exit(1)
+		return
 	}
 
 	config.ListenAddr = *addrURLFlag
@@ -176,8 +194,14 @@ func main() {
 	serverWaitGroup.Add(1)
 	server := http.Server{}
 	go func() {
-		router := router.NewProxyRouter(config.BeaconURL, el, cl, cm, logger)
-		http.Handle("/", router)
+		router := &router.ProxyRouter{
+			EL:     el,
+			CL:     cl,
+			CM:     cm,
+			Logger: logger,
+			AuthValidityWindow: config.AuthValidityWindow,
+		}
+		router.Init(config.BeaconURL)
 		logger.Info("Starting http server", zap.String("url", config.ListenAddr))
 		if err := server.Serve(listener); err != nil {
 			logger.Info("Server stopped", zap.Error(err))
