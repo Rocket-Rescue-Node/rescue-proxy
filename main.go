@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Rocket-Pool-Rescue-Node/credentials"
@@ -150,16 +151,26 @@ func initFlags() (config config) {
 	return
 }
 
-func blockUntilSIGINT() {
+func waitForSignals(signals ...os.Signal) {
 
-	// Trap SIGINT
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
 
-	// Block until SIGINT is received
+	// Always wait for SIGTERM at a minimum
+	signal.Notify(c, syscall.SIGTERM)
+
+	if len(signals) != 0 {
+		for _, s := range signals {
+			if s == syscall.SIGTERM {
+				continue
+			}
+			signal.Notify(c, s)
+		}
+	}
+
+	// Block until signal is received
 	<-c
 
-	// Allow subsequent SIGINT to quickly shut down by removing the trap
+	// Allow subsequent signals to quickly shut down by removing the trap
 	signal.Reset()
 	close(c)
 }
@@ -238,11 +249,11 @@ func main() {
 		return
 	}
 
-	logger.Debug("Trapping SIGINT")
-	blockUntilSIGINT()
+	logger.Debug("Trapping SIGTERM and SIGINT")
+	waitForSignals(os.Interrupt)
 
 	// Shut down gracefully
-	logger.Info("Received SIGINT, shutting down")
+	logger.Info("Received signal, shutting down")
 	_ = server.Shutdown(context.Background())
 	listener.Close()
 
