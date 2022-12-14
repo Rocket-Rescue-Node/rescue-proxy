@@ -257,7 +257,7 @@ func (e *ExecutionLayer) backfillEvents() error {
 	e.cache.setHighestBlock(stop)
 
 	delta := big.NewInt(0).Sub(stop, start)
-	
+
 	// If start == stop we actually fill that one block, so add one to delta
 	delta = delta.Add(delta, big.NewInt(1))
 
@@ -543,8 +543,8 @@ func (e *ExecutionLayer) Deinit() {
 }
 
 // ForEachNode calls the provided closure with the address of every rocket pool node the ExecutionLayer has observed
-func (e *ExecutionLayer) ForEachNode(closure ForEachNodeClosure) {
-	e.cache.forEachNode(closure)
+func (e *ExecutionLayer) ForEachNode(closure ForEachNodeClosure) error {
+	return e.cache.forEachNode(closure)
 }
 
 // ValidatorFeeRecipient returns the expected fee recipient for a validator, or nil if the validator is "unknown"

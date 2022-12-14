@@ -102,6 +102,10 @@ func (s *SqliteCache) createTables() error {
 
 }
 
+func rollback(tx *sql.Tx) {
+	_ = tx.Rollback()
+}
+
 func (s *SqliteCache) init() error {
 	var err error
 
@@ -205,14 +209,14 @@ cont:
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer rollback(tx)
 
 	rows, err := tx.Stmt(s.getHighestBlockStmt).Query()
 	if err != nil {
 		return err
 	}
 
-	if rows.Next() == false {
+	if !rows.Next() {
 		// No block in the db
 		return tx.Commit()
 	}
@@ -306,7 +310,7 @@ func (s *SqliteCache) getMinipoolNode(pubkey rptypes.ValidatorPubkey) (common.Ad
 	if err != nil {
 		return common.Address{}, err
 	}
-	defer tx.Rollback()
+	defer rollback(tx)
 
 	rows, err := tx.Stmt(s.getMinipoolStmt).Query(pubkey[:])
 	if err != nil {
@@ -338,7 +342,7 @@ func (s *SqliteCache) addMinipoolNode(pubkey rptypes.ValidatorPubkey, nodeAddr c
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer rollback(tx)
 
 	_, err = tx.Stmt(s.setMinipoolStmt).Exec(pubkey[:], nodeAddr.Bytes())
 	if err != nil {
@@ -356,7 +360,7 @@ func (s *SqliteCache) getNodeInfo(nodeAddr common.Address) (*nodeInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer rollback(tx)
 
 	rows, err := tx.Stmt(s.getNodeStmt).Query(nodeAddr.Bytes())
 	if err != nil {
@@ -396,7 +400,7 @@ func (s *SqliteCache) addNodeInfo(nodeAddr common.Address, node *nodeInfo) error
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer rollback(tx)
 
 	_, err = tx.Stmt(s.setNodeStmt).Exec(nodeAddr.Bytes(), inSP, node.feeDistributor.Bytes())
 	if err != nil {
@@ -413,7 +417,7 @@ func (s *SqliteCache) forEachNode(closure ForEachNodeClosure) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer rollback(tx)
 
 	rows, err := tx.Stmt(s.forEachNodeStmt).Query()
 	if err != nil {
@@ -477,7 +481,7 @@ func (s *SqliteCache) deinit() error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer rollback(tx)
 
 	_, err = tx.Stmt(s.setHighestBlockStmt).Exec(block)
 	if err != nil {

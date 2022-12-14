@@ -34,10 +34,14 @@ func (a *API) GetRocketPoolNodes(ctx context.Context, request *pb.RocketPoolNode
 	out := &pb.RocketPoolNodes{}
 	out.NodeIds = make([][]byte, 0, 1024)
 
-	a.EL.ForEachNode(func(addr common.Address) bool {
+	err := a.EL.ForEachNode(func(addr common.Address) bool {
 		out.NodeIds = append(out.NodeIds, addr.Bytes())
 		return true
 	})
+
+	if err != nil {
+		return nil, err
+	}
 
 	return out, nil
 }
