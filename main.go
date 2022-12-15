@@ -66,7 +66,6 @@ func initFlags() (config config) {
 		os.Exit(1)
 		return
 	}
-	defer logger.Sync()
 
 	if *bnURLFlag == "" {
 		fmt.Fprintf(os.Stderr, "Invalid -bn-url:\n")
@@ -244,7 +243,7 @@ func main() {
 
 	// Shut down gracefully
 	logger.Info("Received SIGINT, shutting down")
-	server.Shutdown(context.Background())
+	_ = server.Shutdown(context.Background())
 	listener.Close()
 
 	api.Deinit()
@@ -255,4 +254,5 @@ func main() {
 	// Disconnect from the execution client
 	el.Deinit()
 	cl.Deinit()
+	_ = logger.Sync()
 }

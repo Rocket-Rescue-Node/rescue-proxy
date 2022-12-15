@@ -2,7 +2,7 @@ package consensuslayer
 
 type PrepareBeaconProposerRequest []struct {
 	ValidatorIndex string `json:"validator_index"`
-	FeeRecipient string `json:"fee_recipient"`
+	FeeRecipient   string `json:"fee_recipient"`
 }
 
 type RegisterValidatorMessage struct {
@@ -14,7 +14,7 @@ type RegisterValidatorMessage struct {
 }
 
 type RegisterValidatorRequest []struct {
-	Message	RegisterValidatorMessage `json:"message"`
+	Message RegisterValidatorMessage `json:"message"`
 
 	// Omitting signature. The BN will validate it for us.
 }

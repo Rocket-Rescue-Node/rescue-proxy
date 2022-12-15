@@ -110,6 +110,5 @@ func (m *MapsCache) deinit() error {
 }
 
 func (m *MapsCache) reset() error {
-	m.init()
-	return nil
+	return m.init()
 }

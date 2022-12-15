@@ -279,8 +279,13 @@ func (pr *ProxyRouter) Init(beaconNode *url.URL) {
 	// Path to check the status of the rescue node. Simply 200 OK.
 	router.Path("/_/status").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pr.Logger.Debug("Received healthcheck, replying 200 OK")
+		_, err := w.Write([]byte("OK\n"))
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK\n"))
 	})
 
 	router.Path("/eth/v1/validator/prepare_beacon_proposer").
