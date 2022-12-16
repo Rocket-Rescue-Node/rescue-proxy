@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/Rocket-Pool-Rescue-Node/credentials"
-	"github.com/Rocket-Pool-Rescue-Node/credentials/pb"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
 	"github.com/ethereum/go-ethereum/common"
@@ -80,6 +79,8 @@ func (pr *ProxyRouter) prepareBeaconProposer() http.HandlerFunc {
 		pubkeyMap, err := pr.CL.GetValidatorPubkey(indices)
 		if err != nil {
 			pr.Logger.Error("Error while querying CL for validator pubkeys", zap.Error(err))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 
 		// Grab the authorized node address
@@ -232,8 +233,8 @@ func (pr *ProxyRouter) authenticationMiddleware(next http.Handler) http.Handler 
 		}
 
 		// Unmarshal the protobuf
-		unmarshaled := &pb.AuthenticatedCredential{}
-		err = proto.Unmarshal(decoded, unmarshaled)
+		unmarshaled := &credentials.AuthenticatedCredential{}
+		err = proto.Unmarshal(decoded, unmarshaled.Pb())
 		if err != nil {
 			pr.Logger.Debug("Received request with malformed password protobuf on guarded endpoint", zap.Error(err))
 			w.WriteHeader(http.StatusUnauthorized)
