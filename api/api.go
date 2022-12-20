@@ -5,6 +5,7 @@ import (
 	"net"
 
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
+	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/pb"
 	"github.com/ethereum/go-ethereum/common"
 	"go.uber.org/zap"
@@ -18,6 +19,7 @@ type API struct {
 	ListenAddr string
 	listener   net.Listener
 	server     *grpc.Server
+	m          *metrics.MetricsRegistry
 }
 
 func NewAPI(listenAddr string, el *executionlayer.ExecutionLayer, logger *zap.Logger) *API {
@@ -25,6 +27,7 @@ func NewAPI(listenAddr string, el *executionlayer.ExecutionLayer, logger *zap.Lo
 		EL:         el,
 		Logger:     logger,
 		ListenAddr: listenAddr,
+		m:          metrics.NewMetricsRegistry("api"),
 	}
 
 	return out
@@ -40,9 +43,11 @@ func (a *API) GetRocketPoolNodes(ctx context.Context, request *pb.RocketPoolNode
 	})
 
 	if err != nil {
+		a.m.Counter("get_rocket_pool_nodes_error").Inc()
 		return nil, err
 	}
 
+	a.m.Counter("get_rocket_pool_nodes_ok").Inc()
 	return out, nil
 }
 
