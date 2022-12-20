@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -76,6 +77,8 @@ type ExecutionLayer struct {
 	// presumably, the Unsubscribe() call is less graceful than ideal.
 	// Set this to true before calling Unsubscribe() so we can ignore subsequent errors
 	shutdown bool
+
+	m *metrics.MetricsRegistry
 }
 
 // NewExecutionLayer creates an ExecutionLayer with the provided ec URL, rocketStorage address, cache, and logger

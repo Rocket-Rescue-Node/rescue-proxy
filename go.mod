@@ -11,6 +11,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
 	github.com/mattn/go-sqlite3 v1.11.0
 	github.com/mwitkow/grpc-proxy v0.0.0-20220126150247-db34e7bfee32
+	github.com/prometheus/client_golang v1.12.2
 	github.com/prysmaticlabs/prysm/v3 v3.1.2
 	github.com/rocket-pool/rocketpool-go v1.4.0
 	github.com/rs/zerolog v1.26.1
@@ -20,7 +21,9 @@ require (
 )
 
 require (
+	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.2.1 // indirect
+	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/deckarep/golang-set v1.8.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.1.0 // indirect
 	github.com/fatih/color v1.13.0 // indirect
@@ -36,9 +39,13 @@ require (
 	github.com/klauspost/cpuid/v2 v2.1.2 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.16 // indirect
+	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
 	github.com/minio/sha256-simd v1.0.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/prometheus/client_model v0.2.0 // indirect
+	github.com/prometheus/common v0.37.0 // indirect
+	github.com/prometheus/procfs v0.8.0 // indirect
 	github.com/prysmaticlabs/fastssz v0.0.0-20220628121656-93dfe28febab // indirect
 	github.com/prysmaticlabs/go-bitfield v0.0.0-20210809151128-385d8c5e3fb7 // indirect
 	github.com/prysmaticlabs/gohashtree v0.0.2-alpha // indirect
