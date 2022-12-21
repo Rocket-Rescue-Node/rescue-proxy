@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"os"
 
+	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
 	"github.com/ethereum/go-ethereum/common"
 	driver "github.com/mattn/go-sqlite3"
 	rptypes "github.com/rocket-pool/rocketpool-go/types"
@@ -25,6 +26,8 @@ type SqliteCache struct {
 
 	// Track the highest block in memory and save to db before serializing
 	highestBlock *big.Int
+
+	m *metrics.MetricsRegistry
 }
 
 const snapshotFileName = "rescue-proxy-cache.sql"
@@ -108,6 +111,8 @@ func rollback(tx *sql.Tx) {
 
 func (s *SqliteCache) init() error {
 	var err error
+
+	s.m = metrics.NewMetricsRegistry("sqlite_cache")
 
 	// Set highestBlock to 0. We can load it from the snapshot later
 	s.highestBlock = big.NewInt(0)
@@ -444,6 +449,7 @@ func (s *SqliteCache) setHighestBlock(block *big.Int) {
 	}
 
 	// Someone else owns this pointer, so make a new one
+	s.m.Gauge("highest_block").Set(float64(block.Uint64()))
 	s.highestBlock = big.NewInt(0)
 	s.highestBlock.Add(block, s.highestBlock)
 }
@@ -470,6 +476,7 @@ func (s *SqliteCache) reset() error {
 		return err
 	}
 
+	s.m.Counter("reset").Inc()
 	return nil
 }
 

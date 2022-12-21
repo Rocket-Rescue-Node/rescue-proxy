@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
 	"github.com/allegro/bigcache/v3"
 	"github.com/attestantio/go-eth2-client/http"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
@@ -34,6 +35,8 @@ type ConsensusLayer struct {
 
 	// Disconnects from the bn
 	disconnect func()
+
+	m *metrics.MetricsRegistry
 }
 
 // NewConsensusLayer creates a new consensus layer client using the provided url and logger
@@ -41,6 +44,7 @@ func NewConsensusLayer(bnURL *url.URL, logger *zap.Logger) *ConsensusLayer {
 	out := &ConsensusLayer{}
 	out.bnURL = bnURL
 	out.logger = logger
+	out.m = metrics.NewMetricsRegistry("consensus_layer")
 
 	return out
 }
@@ -99,6 +103,7 @@ func (c *ConsensusLayer) GetValidatorPubkey(validatorIndices []string) (map[stri
 			// Add the pubkey to the output. We have to cast it to an array, but the length is correct (see above)
 			out[validatorIndex] = *(*rptypes.ValidatorPubkey)(pubkey)
 			c.logger.Debug("Cache hit", zap.String("validator", validatorIndex))
+			c.m.Counter("cache_hit").Inc()
 		} else {
 			// An error means the record wasn't in the cache
 			// Add the index to the list to be queried against the BN
@@ -107,12 +112,14 @@ func (c *ConsensusLayer) GetValidatorPubkey(validatorIndices []string) (map[stri
 				c.logger.Warn("Invalid validator index", zap.String("index", validatorIndex))
 			}
 			missing = append(missing, phase0.ValidatorIndex(index))
+			c.m.Counter("cache_miss").Inc()
 			c.logger.Debug("Cache miss", zap.String("validator", validatorIndex))
 		}
 	}
 
 	if len(missing) == 0 {
 		// All pubkeys were cached
+		c.m.Counter("all_keys_cache_hit").Inc()
 		return out, nil
 	}
 
@@ -128,6 +135,7 @@ func (c *ConsensusLayer) GetValidatorPubkey(validatorIndices []string) (map[stri
 
 		// Add it to the cache. Ignore errors, we can always look the key up later
 		_ = c.pubkeyCache.Set(strIndex, pubkey[:])
+		c.m.Counter("cache_add").Inc()
 	}
 
 	return out, nil

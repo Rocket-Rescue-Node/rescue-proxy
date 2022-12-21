@@ -16,6 +16,7 @@ import (
 	"github.com/Rocket-Pool-Rescue-Node/credentials"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
+	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
 	rptypes "github.com/rocket-pool/rocketpool-go/types"
@@ -30,6 +31,7 @@ type ProxyRouter struct {
 	CL                 *consensuslayer.ConsensusLayer
 	CM                 *credentials.CredentialManager
 	AuthValidityWindow time.Duration
+	m                  *metrics.MetricsRegistry
 }
 
 // Used to avoid collisions in context.WithValue()
@@ -51,6 +53,7 @@ func cloneRequestBody(r *http.Request) (io.ReadCloser, error) {
 
 func (pr *ProxyRouter) prepareBeaconProposer() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		pr.m.Counter("prepare_beacon_proposer").Inc()
 		// Clone the request body so it can still be proxied
 		buf, err := cloneRequestBody(r)
 		if err != nil {
@@ -107,6 +110,7 @@ func (pr *ProxyRouter) prepareBeaconProposer() http.HandlerFunc {
 			// Next we need to get the expected fee recipient for the pubkey
 			expectedFeeRecipient, unowned := pr.EL.ValidatorFeeRecipient(pubkey, &authedNodeAddr)
 			if expectedFeeRecipient == nil {
+				pr.m.Counter("prepare_beacon_proposer_unowned").Inc()
 				pr.Logger.Warn("Pubkey not found in EL cache, or wasn't owned by the user",
 					zap.String("key", pubkey.String()),
 					zap.Bool("someone else's validator", unowned))
@@ -115,11 +119,14 @@ func (pr *ProxyRouter) prepareBeaconProposer() http.HandlerFunc {
 			}
 			if !strings.EqualFold(expectedFeeRecipient.String(), proposer.FeeRecipient) {
 				// Looks like a cheater- fee recipient doesn't match expectations
+				pr.m.Counter("prepare_beacon_incorrect_fee_recipient").Inc()
 				pr.Logger.Warn("prepare_beacon_proposer called with unexpected fee recipient",
 					zap.String("expected", expectedFeeRecipient.String()), zap.String("got", proposer.FeeRecipient))
 				w.WriteHeader(http.StatusConflict)
 				return
 			}
+
+			pr.m.Counter("prepare_beacon_correct_fee_recipient").Inc()
 		}
 
 		// At this point all the fee recipients match our expectations. Proxy the request
@@ -129,6 +136,7 @@ func (pr *ProxyRouter) prepareBeaconProposer() http.HandlerFunc {
 
 func (pr *ProxyRouter) registerValidator() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		pr.m.Counter("register_validator").Inc()
 		// Clone the request body so it can still be proxied
 		buf, err := cloneRequestBody(r)
 		if err != nil {
@@ -172,6 +180,7 @@ func (pr *ProxyRouter) registerValidator() http.HandlerFunc {
 				// it means we're seeing a solo validator using mev-boost. Since register_validator requires a signature,
 				// we can allow this fee recipient.
 				if !unowned {
+					pr.m.Counter("register_validator_not_minipool").Inc()
 					// Move on to the next pubkey
 					continue
 				}
@@ -181,6 +190,7 @@ func (pr *ProxyRouter) registerValidator() http.HandlerFunc {
 			}
 
 			if !strings.EqualFold(expectedFeeRecipient.String(), validator.Message.FeeRecipient) {
+				pr.m.Counter("register_validator_incorrect_fee_recipient").Inc()
 				pr.Logger.Warn("register_validator called with unexpected fee recipient",
 					zap.String("expected", expectedFeeRecipient.String()), zap.String("got", validator.Message.FeeRecipient))
 				w.WriteHeader(http.StatusConflict)
@@ -188,6 +198,7 @@ func (pr *ProxyRouter) registerValidator() http.HandlerFunc {
 			}
 
 			// This fee recipient matches expectations, carry on to the next validator
+			pr.m.Counter("register_validator_correct_fee_recipient").Inc()
 		}
 
 		// At this point all the fee recipients match our expectations. Proxy the request
@@ -209,6 +220,7 @@ func (pr *ProxyRouter) authenticationMiddleware(next http.Handler) http.Handler 
 		// Start by grabbing basicauth
 		username, password, ok := r.BasicAuth()
 		if !ok {
+			pr.m.Counter("missing_credentials").Inc()
 			pr.Logger.Debug("Received request with no credentials on guarded endpoint")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -218,6 +230,7 @@ func (pr *ProxyRouter) authenticationMiddleware(next http.Handler) http.Handler 
 		decoder := base64.NewDecoder(base64.URLEncoding, bytes.NewReader([]byte(username)))
 		nodeID, err := io.ReadAll(decoder)
 		if err != nil {
+			pr.m.Counter("malformed_username").Inc()
 			pr.Logger.Debug("Received request with malformed username on guarded endpoint", zap.Error(err))
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -227,6 +240,7 @@ func (pr *ProxyRouter) authenticationMiddleware(next http.Handler) http.Handler 
 		decoder = base64.NewDecoder(base64.URLEncoding, bytes.NewReader([]byte(password)))
 		decoded, err := io.ReadAll(decoder)
 		if err != nil {
+			pr.m.Counter("malformed_password").Inc()
 			pr.Logger.Debug("Received request with malformed password on guarded endpoint", zap.Error(err))
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -236,6 +250,7 @@ func (pr *ProxyRouter) authenticationMiddleware(next http.Handler) http.Handler 
 		unmarshaled := &credentials.AuthenticatedCredential{}
 		err = proto.Unmarshal(decoded, unmarshaled.Pb())
 		if err != nil {
+			pr.m.Counter("malformed_protobuf").Inc()
 			pr.Logger.Debug("Received request with malformed password protobuf on guarded endpoint", zap.Error(err))
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -247,6 +262,7 @@ func (pr *ProxyRouter) authenticationMiddleware(next http.Handler) http.Handler 
 		unmarshaled.Credential.NodeId = nodeID
 		err = pr.CM.Verify(unmarshaled)
 		if err != nil {
+			pr.m.Counter("invalid_hmac").Inc()
 			pr.Logger.Debug("Unable to verify hmac on guarded endpoint", zap.Error(err))
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -257,12 +273,14 @@ func (pr *ProxyRouter) authenticationMiddleware(next http.Handler) http.Handler 
 		now := time.Now()
 
 		if ts.Before(now) && now.Sub(ts) > pr.AuthValidityWindow {
+			pr.m.Counter("expired_credentials").Inc()
 			pr.Logger.Debug("Stale credential seen on guarded endpoint")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
 		// If auth succeeds:
+		pr.m.Counter("auth_ok").Inc()
 		pr.Logger.Debug("Proxying Guarded URI", zap.String("uri", r.RequestURI))
 		// Add the node address to the request context
 		ctx := context.WithValue(r.Context(), prContextKey("node"), nodeID)
@@ -275,6 +293,8 @@ func (pr *ProxyRouter) Init(beaconNode *url.URL) {
 	// Create the reverse proxy.
 	pr.proxy = httputil.NewSingleHostReverseProxy(beaconNode)
 
+	pr.m = metrics.NewMetricsRegistry("http_proxy")
+
 	router := mux.NewRouter()
 
 	// Path to check the status of the rescue node. Simply 200 OK.
@@ -286,6 +306,7 @@ func (pr *ProxyRouter) Init(beaconNode *url.URL) {
 			return
 		}
 
+		pr.m.Counter("status").Inc()
 		w.WriteHeader(http.StatusOK)
 	})
 

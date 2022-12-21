@@ -15,9 +15,11 @@ import (
 	"time"
 
 	"github.com/Rocket-Pool-Rescue-Node/credentials"
+	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/admin"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/api"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
+	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/router"
 	"go.uber.org/zap"
 )
@@ -29,6 +31,7 @@ type config struct {
 	ExecutionURL       *url.URL
 	ListenAddr         string
 	APIListenAddr      string
+	AdminListenAddr    string
 	GRPCListenAddr     string
 	GRPCBeaconAddr     string
 	RocketStorageAddr  string
@@ -55,6 +58,7 @@ func initFlags() (config config) {
 	bnURLFlag := flag.String("bn-url", "", "URL to the beacon node to proxy, eg, http://localhost:5052")
 	ecURLFlag := flag.String("ec-url", "", "URL to the execution client to use, eg, http://localhost:8545")
 	addrURLFlag := flag.String("addr", "0.0.0.0:80", "Address on which to reply to HTTP requests")
+	adminAddrURLFlag := flag.String("admin-addr", "0.0.0.0:8000", "Address on which to reply to admin/metrics requests")
 	apiAddrURLFlag := flag.String("api-addr", "0.0.0.0:8080", "Address on which to reply to gRPC API requests")
 	grpcAddrFlag := flag.String("grpc-addr", "", "Address on which to reply to gRPC requests")
 	grpcBeaconAddrFlag := flag.String("grpc-beacon-addr", "", "Address to the beacon node to proxy for gRPC, eg, localhost:4000")
@@ -122,6 +126,12 @@ func initFlags() (config config) {
 		return
 	}
 
+	if *adminAddrURLFlag == "" {
+		fmt.Fprintf(os.Stderr, "Invalid -admin-addr:\n")
+		os.Exit(1)
+		return
+	}
+
 	if *apiAddrURLFlag == "" {
 		fmt.Fprintf(os.Stderr, "Invalid -api-addr:\n")
 		os.Exit(1)
@@ -147,13 +157,14 @@ func initFlags() (config config) {
 		return
 	}
 
-	config.ListenAddr = *addrURLFlag
+	config.AdminListenAddr = *adminAddrURLFlag
 	config.APIListenAddr = *apiAddrURLFlag
-	config.GRPCListenAddr = *grpcAddrFlag
-	config.GRPCBeaconAddr = *grpcBeaconAddrFlag
-	config.RocketStorageAddr = *rocketStorageAddrFlag
 	config.CredentialSecret = *credentialSecretFlag
 	config.CachePath = *cachePathFlag
+	config.GRPCListenAddr = *grpcAddrFlag
+	config.GRPCBeaconAddr = *grpcBeaconAddrFlag
+	config.ListenAddr = *addrURLFlag
+	config.RocketStorageAddr = *rocketStorageAddrFlag
 	return
 }
 
@@ -186,6 +197,27 @@ func main() {
 	// Initialize config
 	config := initFlags()
 	logger.Info("Starting up the rescue node proxy...")
+
+	// Initialize metrics globals
+	metricsHTTPHandler, err := metrics.Init("rescue_proxy")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to initialize admin api\n%v\n", err)
+		os.Exit(1)
+		return
+	}
+
+	// Create the admin-only http server
+	adminServer := admin.AdminApi{}
+	adminServer.Init(config.AdminListenAddr)
+
+	// Add admin handlers to the admin only http server and start it
+	adminServer.Handle("/metrics", metricsHTTPHandler)
+	err = adminServer.Start()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to start admin api\n%v\n", err)
+		os.Exit(1)
+		return
+	}
 
 	// Listen on the provided address
 	listener, err := net.Listen("tcp", config.ListenAddr)
@@ -289,5 +321,8 @@ func main() {
 	// Disconnect from the execution client
 	el.Deinit()
 	cl.Deinit()
+
+	// Shut down admin server
+	adminServer.Close()
 	_ = logger.Sync()
 }

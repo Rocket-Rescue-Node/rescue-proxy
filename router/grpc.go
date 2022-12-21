@@ -12,6 +12,7 @@ import (
 	"github.com/Rocket-Pool-Rescue-Node/credentials"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
+	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/mwitkow/grpc-proxy/proxy"
 	prysmpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
@@ -34,6 +35,7 @@ type GRPCRouter struct {
 	CL                 *consensuslayer.ConsensusLayer
 	CM                 *credentials.CredentialManager
 	AuthValidityWindow time.Duration
+	m                  *metrics.MetricsRegistry
 }
 
 type validationCb func(proto.Message, common.Address) error
@@ -48,6 +50,7 @@ type guardedServerStream struct {
 
 func (g *GRPCRouter) validatePrepareBeaconProposer(m proto.Message, nodeAddr common.Address) error {
 
+	g.m.Counter("prepare_beacon_proposer").Inc()
 	pbp := &prysmpb.PrepareBeaconProposerRequest{}
 
 	unknown := []byte(m.ProtoReflect().GetUnknown())
@@ -86,6 +89,7 @@ func (g *GRPCRouter) validatePrepareBeaconProposer(m proto.Message, nodeAddr com
 		// Next we need to get the expected fee recipient for the pubkey
 		expectedFeeRecipient, unowned := g.EL.ValidatorFeeRecipient(pubkey, &nodeAddr)
 		if expectedFeeRecipient == nil {
+			g.m.Counter("prepare_beacon_proposer_unowned").Inc()
 			g.Logger.Warn("Pubkey not found in EL cache, or wasn't owned by the user",
 				zap.String("key", pubkey.String()),
 				zap.Bool("someone else's validator", unowned))
@@ -93,11 +97,14 @@ func (g *GRPCRouter) validatePrepareBeaconProposer(m proto.Message, nodeAddr com
 		}
 
 		if !bytes.Equal(expectedFeeRecipient.Bytes(), proposer.FeeRecipient) {
+			g.m.Counter("prepare_beacon_incorrect_fee_recipient").Inc()
 			// Looks like a cheater- fee recipient doesn't match expectations
 			g.Logger.Warn("prepare_beacon_proposer called with unexpected fee recipient",
 				zap.String("expected", expectedFeeRecipient.String()), zap.String("got", hex.EncodeToString(proposer.FeeRecipient)))
 			return status.Error(codes.PermissionDenied, "incorrect fee recipient")
 		}
+
+		g.m.Counter("prepare_beacon_correct_fee_recipient").Inc()
 	}
 
 	return nil
@@ -105,6 +112,7 @@ func (g *GRPCRouter) validatePrepareBeaconProposer(m proto.Message, nodeAddr com
 
 func (g *GRPCRouter) validateRegisterValidators(m proto.Message, nodeAddr common.Address) error {
 
+	g.m.Counter("register_validator").Inc()
 	rv := &prysmpb.SignedValidatorRegistrationsV1{}
 
 	unknown := []byte(m.ProtoReflect().GetUnknown())
@@ -125,6 +133,7 @@ func (g *GRPCRouter) validateRegisterValidators(m proto.Message, nodeAddr common
 			// it means we're seeing a solo validator using mev-boost. Since register_validator requires a signature,
 			// we can allow this fee recipient.
 			if !unowned {
+				g.m.Counter("register_validator_not_minipool").Inc()
 				// Move on to the next pubkey
 				continue
 			}
@@ -133,12 +142,14 @@ func (g *GRPCRouter) validateRegisterValidators(m proto.Message, nodeAddr common
 		}
 
 		if !bytes.Equal(expectedFeeRecipient.Bytes(), registration.Message.FeeRecipient) {
+			g.m.Counter("register_validator_incorrect_fee_recipient").Inc()
 			g.Logger.Warn("register_validator called with unexpected fee recipient",
 				zap.String("expected", expectedFeeRecipient.String()),
 				zap.String("got", hex.EncodeToString(registration.Message.FeeRecipient)))
 			return status.Error(codes.PermissionDenied, "incorrect fee recipient")
 		}
 
+		g.m.Counter("register_validator_correct_fee_recipient").Inc()
 	}
 
 	return nil
@@ -179,6 +190,7 @@ func (g *GRPCRouter) payloadInterceptor() grpc.StreamServerInterceptor {
 		method := strings.Split(info.FullMethod, "/")
 		_, matched := services[method[1]]
 		if !matched {
+			g.m.Counter("unknown_service").Inc()
 			g.Logger.Warn("unknown service", zap.String("service", method[1]))
 			return status.Errorf(codes.Unimplemented, "unknown service %s", method[1])
 		}
@@ -187,6 +199,7 @@ func (g *GRPCRouter) payloadInterceptor() grpc.StreamServerInterceptor {
 		ctx := stream.Context()
 		md, exists := metadata.FromIncomingContext(ctx)
 		if !exists {
+			g.m.Counter("auth_header_missing").Inc()
 			g.Logger.Warn("no metadata on inbound request", zap.String("service", method[1]))
 			return status.Error(codes.Unauthenticated, "no metadata on inbound request")
 		}
@@ -196,12 +209,14 @@ func (g *GRPCRouter) payloadInterceptor() grpc.StreamServerInterceptor {
 		if method[2] != "DomainData" && method[2] != "SubscribeCommitteeSubnets" {
 			val, exists := md["rprnauth"]
 			if !exists || len(val) < 1 {
+				g.m.Counter("auth_header_missing").Inc()
 				g.Logger.Debug("grpc access without auth header", zap.String("service", method[1]), zap.String("method", method[2]), zap.Bool("exists", exists))
 				return status.Error(codes.Unauthenticated, "headers missing")
 			}
 
 			auth := strings.Split(val[0], ":")
 			if len(auth) != 2 {
+				g.m.Counter("auth_header_malformed").Inc()
 				g.Logger.Debug("grpc access with invalid auth header")
 				return status.Error(codes.Unauthenticated, "headers invalid")
 			}
@@ -209,12 +224,14 @@ func (g *GRPCRouter) payloadInterceptor() grpc.StreamServerInterceptor {
 			ac := credentials.AuthenticatedCredential{}
 			err := ac.Base64URLDecode(auth[0], auth[1])
 			if err != nil {
+				g.m.Counter("auth_header_invalid_b64").Inc()
 				g.Logger.Debug("Unable to b64url decode credentials", zap.Error(err))
 				return status.Error(codes.Unauthenticated, "auth header could not be verified")
 			}
 
 			err = g.CM.Verify(&ac)
 			if err != nil {
+				g.m.Counter("invalid_credentials").Inc()
 				g.Logger.Debug("Unable to verify hmac on guarded endpoint", zap.Error(err))
 				return status.Error(codes.Unauthenticated, "auth header could not be verified")
 			}
@@ -224,16 +241,19 @@ func (g *GRPCRouter) payloadInterceptor() grpc.StreamServerInterceptor {
 			now := time.Now()
 
 			if ts.Before(now) && now.Sub(ts) > g.AuthValidityWindow {
+				g.m.Counter("expired_credentials").Inc()
 				g.Logger.Debug("Stale credential seen on guarded endpoint")
 				return status.Error(codes.PermissionDenied, "credential expired")
 			}
 
+			g.m.Counter("auth_ok").Inc()
 			g.Logger.Debug("Proxying guarded grpc service", zap.String("method", info.FullMethod))
 
 			nodeAddr = common.BytesToAddress(ac.Credential.NodeId)
 		}
 
 		if cb, matched := msgCbs[method[2]]; matched {
+			g.m.Counter("guarded_service_call").Inc()
 			wrapper := &guardedServerStream{
 				ServerStream: stream,
 				router:       g,
@@ -243,6 +263,8 @@ func (g *GRPCRouter) payloadInterceptor() grpc.StreamServerInterceptor {
 
 			return handler(srv, wrapper)
 		}
+
+		g.m.Counter("unguarded_service_call").Inc()
 		return handler(srv, stream)
 	}
 }
@@ -257,6 +279,9 @@ func (g *GRPCRouter) director() proxy.StreamDirector {
 
 func (g *GRPCRouter) Init(listenAddr string, beaconAddr string) error {
 	var err error
+
+	g.m = metrics.NewMetricsRegistry("grpc_proxy")
+
 	g.listener, err = net.Listen("tcp", listenAddr)
 	if err != nil {
 		return err

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -76,6 +77,8 @@ type ExecutionLayer struct {
 	// presumably, the Unsubscribe() call is less graceful than ideal.
 	// Set this to true before calling Unsubscribe() so we can ignore subsequent errors
 	shutdown bool
+
+	m *metrics.MetricsRegistry
 }
 
 // NewExecutionLayer creates an ExecutionLayer with the provided ec URL, rocketStorage address, cache, and logger
@@ -85,6 +88,7 @@ func NewExecutionLayer(ecURL *url.URL, rocketStorageAddr string, cache Cache, lo
 	out.rocketStorageAddr = rocketStorageAddr
 	out.ecURL = ecURL
 	out.cache = cache
+	out.m = metrics.NewMetricsRegistry("execution_layer")
 
 	return out
 }
@@ -119,6 +123,8 @@ func (e *ExecutionLayer) handleNodeEvent(event types.Log) {
 		if err != nil {
 			e.logger.Error("Failed to add nodeInfo to cache", zap.Error(err))
 		}
+
+		e.m.Counter("node_registration_added").Inc()
 		e.logger.Debug("New node registered", zap.String("addr", addr.String()))
 		return
 	}
@@ -157,6 +163,8 @@ func (e *ExecutionLayer) handleNodeEvent(event types.Log) {
 		if err != nil {
 			e.logger.Error("Failed to add nodeInfo to cache", zap.Error(err))
 		}
+
+		e.m.Counter("smoothing_pool_status_changed").Inc()
 		return
 	}
 
@@ -187,11 +195,13 @@ func (e *ExecutionLayer) handleMinipoolEvent(event types.Log) {
 	if err != nil {
 		e.logger.Warn("Error updating minipool cache", zap.Error(err))
 	}
+	e.m.Counter("minipool_launch_received").Inc()
 	e.logger.Debug("Added new minipool", zap.String("pubkey", minipoolDetails.Pubkey.String()), zap.String("node", nodeAddr.String()))
 }
 
 func (e *ExecutionLayer) handleEvent(event types.Log) {
 	// events from the rocketNodeManager contract
+	e.m.Counter("subscription_event_received").Inc()
 	if bytes.Equal(e.rocketNodeManager.Address[:], event.Address[:]) {
 		e.handleNodeEvent(event)
 		goto out
@@ -251,6 +261,7 @@ func (e *ExecutionLayer) backfillEvents() error {
 
 	for _, event := range missedEvents {
 		e.handleEvent(event)
+		e.m.Counter("backfill_events").Inc()
 	}
 
 	// Force the highest block to update, as we may not have received any events in it, which would have updated it
@@ -260,6 +271,7 @@ func (e *ExecutionLayer) backfillEvents() error {
 
 	// If start == stop we actually fill that one block, so add one to delta
 	delta = delta.Add(delta, big.NewInt(1))
+	e.m.Counter("backfill_blocks").Add(float64(delta.Uint64()))
 
 	e.logger.Debug("Backfilled events", zap.Int("events", len(missedEvents)),
 		zap.Uint64("blocks", delta.Uint64()),
@@ -273,10 +285,12 @@ func (e *ExecutionLayer) handleSubscriptionError(err error, logEventSub **ethere
 		return
 	}
 
+	e.m.Counter("subscription_disconnected").Inc()
 	e.logger.Warn("Error received from eth client subscription", zap.Error(err))
 	// Attempt to reconnect `reconnectRetries` times with steadily increasing waits
 	for i := 0; i < reconnectRetries; i++ {
 		e.logger.Warn("Attempting to reconnect", zap.Int("attempt", i+1))
+		e.m.Counter("reconnection_attempt").Inc()
 		s, err := e.client.SubscribeFilterLogs(context.Background(), e.query, e.events)
 		if err == nil {
 			e.logger.Warn("Reconnected", zap.Int("attempt", i+1))
@@ -385,6 +399,7 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 				}
 
 				// Just advance highest block
+				e.m.Counter("block_header_received").Inc()
 				e.logger.Debug("New block received",
 					zap.Int64("new height", newHeader.Number.Int64()),
 					zap.Int64("old height", e.cache.getHighestBlock().Int64()))
@@ -559,11 +574,13 @@ func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey rptypes.ValidatorPubkey, q
 		}
 
 		// Validator (hopefully) isn't a minipool
+		e.m.Counter("non_minipool_detected").Inc()
 		return nil, false
 	}
 
 	if queryNodeAddr != nil && !bytes.Equal(queryNodeAddr.Bytes(), nodeAddr.Bytes()) {
 		// This minipool was owned by someone else
+		e.m.Counter("minipool_unowned_by_node").Inc()
 		return nil, true
 	}
 
@@ -578,6 +595,7 @@ func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey rptypes.ValidatorPubkey, q
 		}
 
 		// Validator was a minipool, but we don't have a node record for it. This is bad.
+		e.m.Counter("cache_inconsistent").Inc()
 		e.logger.Error("Validator was in the minipool index, but not the node index",
 			zap.String("pubkey", pubkey.String()),
 			zap.String("node", nodeAddr.String()))
