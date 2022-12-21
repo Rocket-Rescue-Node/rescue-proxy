@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -40,13 +39,13 @@ type prContextKey string
 
 func cloneRequestBody(r *http.Request) (io.ReadCloser, error) {
 	// Read the body
-	buf, err := ioutil.ReadAll(r.Body)
+	buf, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	original := ioutil.NopCloser(bytes.NewBuffer(buf))
-	clone := ioutil.NopCloser(bytes.NewBuffer(buf))
+	original := io.NopCloser(bytes.NewBuffer(buf))
+	clone := io.NopCloser(bytes.NewBuffer(buf))
 	r.Body = original
 	return clone, nil
 }
