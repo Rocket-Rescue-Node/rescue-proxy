@@ -3,6 +3,7 @@ package metrics
 import (
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -24,6 +25,7 @@ type MetricsRegistry struct {
 	counters   map[string]prometheus.Counter
 	gauges     map[string]prometheus.Gauge
 	histograms map[string]prometheus.Histogram
+	lock       sync.RWMutex
 }
 
 // Init intializes the metrics package with the given namespace string.
@@ -53,7 +55,9 @@ func NewMetricsRegistry(subsystem string) *MetricsRegistry {
 // Counter creates or fetches a prometheus Counter from the metrics
 // registry and returns it.
 func (m *MetricsRegistry) Counter(name string) prometheus.Counter {
+	m.lock.RLock()
 	counter, ok := m.counters[name]
+	m.lock.RUnlock()
 	if !ok {
 		counter = promauto.NewCounter(prometheus.CounterOpts{
 			Namespace: mtx.namespace,
@@ -61,7 +65,9 @@ func (m *MetricsRegistry) Counter(name string) prometheus.Counter {
 			Name:      name,
 		})
 
+		m.lock.Lock()
 		m.counters[name] = counter
+		m.lock.Unlock()
 	}
 
 	return counter
@@ -70,7 +76,9 @@ func (m *MetricsRegistry) Counter(name string) prometheus.Counter {
 // Gauge creates or fetches a prometheus Gauge from the metrics
 // registry and returns it.
 func (m *MetricsRegistry) Gauge(name string) prometheus.Gauge {
+	m.lock.RLock()
 	gauge, ok := m.gauges[name]
+	m.lock.RUnlock()
 	if !ok {
 		gauge = promauto.NewGauge(prometheus.GaugeOpts{
 			Namespace: mtx.namespace,
@@ -78,7 +86,9 @@ func (m *MetricsRegistry) Gauge(name string) prometheus.Gauge {
 			Name:      name,
 		})
 
+		m.lock.Lock()
 		m.gauges[name] = gauge
+		m.lock.Unlock()
 	}
 
 	return gauge
@@ -87,7 +97,9 @@ func (m *MetricsRegistry) Gauge(name string) prometheus.Gauge {
 // Histogram creates or fetches a prometheus Histogram from the metrics
 // registry and returns it.
 func (m *MetricsRegistry) Histogram(name string) prometheus.Histogram {
+	m.lock.RLock()
 	histogram, ok := m.histograms[name]
+	m.lock.RUnlock()
 	if !ok {
 		histogram = promauto.NewHistogram(prometheus.HistogramOpts{
 			Namespace: mtx.namespace,
@@ -95,7 +107,9 @@ func (m *MetricsRegistry) Histogram(name string) prometheus.Histogram {
 			Name:      name,
 		})
 
+		m.lock.Lock()
 		m.histograms[name] = histogram
+		m.lock.Unlock()
 	}
 
 	return histogram
