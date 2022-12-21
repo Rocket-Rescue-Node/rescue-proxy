@@ -94,6 +94,14 @@ func (m *MetricsRegistry) Gauge(name string) prometheus.Gauge {
 	return gauge
 }
 
+func (m *MetricsRegistry) GaugeFunc(name string, handler func() float64) {
+	_ = promauto.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: mtx.namespace,
+		Subsystem: m.subsystem,
+		Name:      name,
+	}, handler)
+}
+
 // Histogram creates or fetches a prometheus Histogram from the metrics
 // registry and returns it.
 func (m *MetricsRegistry) Histogram(name string) prometheus.Histogram {

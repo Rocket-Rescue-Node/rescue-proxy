@@ -127,6 +127,7 @@ func (pr *ProxyRouter) prepareBeaconProposer() http.HandlerFunc {
 			}
 
 			pr.m.Counter("prepare_beacon_correct_fee_recipient").Inc()
+			metrics.ObserveValidator(authedNodeAddr, pubkey)
 		}
 
 		// At this point all the fee recipients match our expectations. Proxy the request
@@ -181,6 +182,7 @@ func (pr *ProxyRouter) registerValidator() http.HandlerFunc {
 				// we can allow this fee recipient.
 				if !unowned {
 					pr.m.Counter("register_validator_not_minipool").Inc()
+					metrics.ObserveValidator(authedNodeAddr, pubkey)
 					// Move on to the next pubkey
 					continue
 				}
@@ -199,6 +201,7 @@ func (pr *ProxyRouter) registerValidator() http.HandlerFunc {
 
 			// This fee recipient matches expectations, carry on to the next validator
 			pr.m.Counter("register_validator_correct_fee_recipient").Inc()
+			metrics.ObserveValidator(authedNodeAddr, pubkey)
 		}
 
 		// At this point all the fee recipients match our expectations. Proxy the request
