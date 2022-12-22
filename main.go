@@ -206,6 +206,9 @@ func main() {
 		return
 	}
 
+	// Initialize collection of node and validator count metrics
+	metrics.InitEpochMetrics()
+
 	// Create the admin-only http server
 	adminServer := admin.AdminApi{}
 	adminServer.Init(config.AdminListenAddr)

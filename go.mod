@@ -1,6 +1,6 @@
 module github.com/Rocket-Pool-Rescue-Node/rescue-proxy
 
-go 1.18
+go 1.19
 
 require (
 	github.com/Rocket-Pool-Rescue-Node/credentials v0.0.0-20221210220221-3e4b9363005f

@@ -104,6 +104,7 @@ func (g *GRPCRouter) validatePrepareBeaconProposer(m proto.Message, nodeAddr com
 			return status.Error(codes.PermissionDenied, "incorrect fee recipient")
 		}
 
+		metrics.ObserveValidator(nodeAddr, pubkey)
 		g.m.Counter("prepare_beacon_correct_fee_recipient").Inc()
 	}
 
@@ -134,6 +135,7 @@ func (g *GRPCRouter) validateRegisterValidators(m proto.Message, nodeAddr common
 			// we can allow this fee recipient.
 			if !unowned {
 				g.m.Counter("register_validator_not_minipool").Inc()
+				metrics.ObserveValidator(nodeAddr, *pubkey)
 				// Move on to the next pubkey
 				continue
 			}
@@ -149,6 +151,7 @@ func (g *GRPCRouter) validateRegisterValidators(m proto.Message, nodeAddr common
 			return status.Error(codes.PermissionDenied, "incorrect fee recipient")
 		}
 
+		metrics.ObserveValidator(nodeAddr, *pubkey)
 		g.m.Counter("register_validator_correct_fee_recipient").Inc()
 	}
 

@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -40,13 +39,13 @@ type prContextKey string
 
 func cloneRequestBody(r *http.Request) (io.ReadCloser, error) {
 	// Read the body
-	buf, err := ioutil.ReadAll(r.Body)
+	buf, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	original := ioutil.NopCloser(bytes.NewBuffer(buf))
-	clone := ioutil.NopCloser(bytes.NewBuffer(buf))
+	original := io.NopCloser(bytes.NewBuffer(buf))
+	clone := io.NopCloser(bytes.NewBuffer(buf))
 	r.Body = original
 	return clone, nil
 }
@@ -127,6 +126,7 @@ func (pr *ProxyRouter) prepareBeaconProposer() http.HandlerFunc {
 			}
 
 			pr.m.Counter("prepare_beacon_correct_fee_recipient").Inc()
+			metrics.ObserveValidator(authedNodeAddr, pubkey)
 		}
 
 		// At this point all the fee recipients match our expectations. Proxy the request
@@ -181,6 +181,7 @@ func (pr *ProxyRouter) registerValidator() http.HandlerFunc {
 				// we can allow this fee recipient.
 				if !unowned {
 					pr.m.Counter("register_validator_not_minipool").Inc()
+					metrics.ObserveValidator(authedNodeAddr, pubkey)
 					// Move on to the next pubkey
 					continue
 				}
@@ -199,6 +200,7 @@ func (pr *ProxyRouter) registerValidator() http.HandlerFunc {
 
 			// This fee recipient matches expectations, carry on to the next validator
 			pr.m.Counter("register_validator_correct_fee_recipient").Inc()
+			metrics.ObserveValidator(authedNodeAddr, pubkey)
 		}
 
 		// At this point all the fee recipients match our expectations. Proxy the request

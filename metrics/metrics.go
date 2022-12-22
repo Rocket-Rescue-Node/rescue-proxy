@@ -18,14 +18,19 @@ type Metrics struct {
 
 var mtx *Metrics
 
+type MetricsMap[M prometheus.Metric, O any] struct {
+	sync.RWMutex
+	m           map[string]M
+	initializor func(O) M
+}
+
 // MetricsRegistry proves a per-module api for creating
 // and updating metrics
 type MetricsRegistry struct {
 	subsystem  string
-	counters   map[string]prometheus.Counter
-	gauges     map[string]prometheus.Gauge
-	histograms map[string]prometheus.Histogram
-	lock       sync.RWMutex
+	counters   MetricsMap[prometheus.Counter, prometheus.CounterOpts]
+	gauges     MetricsMap[prometheus.Gauge, prometheus.GaugeOpts]
+	histograms MetricsMap[prometheus.Histogram, prometheus.HistogramOpts]
 }
 
 // Init intializes the metrics package with the given namespace string.
@@ -45,72 +50,85 @@ func Init(namespace string) (http.Handler, error) {
 // to use.
 func NewMetricsRegistry(subsystem string) *MetricsRegistry {
 	return &MetricsRegistry{
-		subsystem:  subsystem,
-		counters:   make(map[string]prometheus.Counter),
-		gauges:     make(map[string]prometheus.Gauge),
-		histograms: make(map[string]prometheus.Histogram),
+		subsystem: subsystem,
+		counters: MetricsMap[prometheus.Counter, prometheus.CounterOpts]{
+			m:           make(map[string]prometheus.Counter),
+			initializor: promauto.NewCounter,
+		},
+		gauges: MetricsMap[prometheus.Gauge, prometheus.GaugeOpts]{
+			m:           make(map[string]prometheus.Gauge),
+			initializor: promauto.NewGauge,
+		},
+		histograms: MetricsMap[prometheus.Histogram, prometheus.HistogramOpts]{
+			m:           make(map[string]prometheus.Histogram),
+			initializor: promauto.NewHistogram,
+		},
 	}
+}
+
+func (m *MetricsMap[T, O]) value(name string, opts O) T {
+
+	m.RLock()
+	val, ok := m.m[name]
+	m.RUnlock()
+
+	if ok {
+		return val
+	}
+
+	// Escalate to a full lock
+	m.Lock()
+	defer m.Unlock()
+
+	val, ok = m.m[name]
+	if ok {
+		// Someone else created the metric while we were
+		// upgrading our lock.
+		return val
+	}
+
+	val = m.initializor(opts)
+	m.m[name] = val
+	return val
 }
 
 // Counter creates or fetches a prometheus Counter from the metrics
 // registry and returns it.
 func (m *MetricsRegistry) Counter(name string) prometheus.Counter {
-	m.lock.RLock()
-	counter, ok := m.counters[name]
-	m.lock.RUnlock()
-	if !ok {
-		counter = promauto.NewCounter(prometheus.CounterOpts{
-			Namespace: mtx.namespace,
-			Subsystem: m.subsystem,
-			Name:      name,
-		})
 
-		m.lock.Lock()
-		m.counters[name] = counter
-		m.lock.Unlock()
-	}
-
-	return counter
+	return m.counters.value(name, prometheus.CounterOpts{
+		Namespace: mtx.namespace,
+		Subsystem: m.subsystem,
+		Name:      name,
+	})
 }
 
 // Gauge creates or fetches a prometheus Gauge from the metrics
 // registry and returns it.
 func (m *MetricsRegistry) Gauge(name string) prometheus.Gauge {
-	m.lock.RLock()
-	gauge, ok := m.gauges[name]
-	m.lock.RUnlock()
-	if !ok {
-		gauge = promauto.NewGauge(prometheus.GaugeOpts{
-			Namespace: mtx.namespace,
-			Subsystem: m.subsystem,
-			Name:      name,
-		})
 
-		m.lock.Lock()
-		m.gauges[name] = gauge
-		m.lock.Unlock()
-	}
+	return m.gauges.value(name, prometheus.GaugeOpts{
+		Namespace: mtx.namespace,
+		Subsystem: m.subsystem,
+		Name:      name,
+	})
+}
 
-	return gauge
+func (m *MetricsRegistry) GaugeFunc(name string, handler func() float64) {
+	_ = promauto.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: mtx.namespace,
+		Subsystem: m.subsystem,
+		Name:      name,
+	}, handler)
 }
 
 // Histogram creates or fetches a prometheus Histogram from the metrics
 // registry and returns it.
 func (m *MetricsRegistry) Histogram(name string) prometheus.Histogram {
-	m.lock.RLock()
-	histogram, ok := m.histograms[name]
-	m.lock.RUnlock()
-	if !ok {
-		histogram = promauto.NewHistogram(prometheus.HistogramOpts{
-			Namespace: mtx.namespace,
-			Subsystem: m.subsystem,
-			Name:      name,
-		})
 
-		m.lock.Lock()
-		m.histograms[name] = histogram
-		m.lock.Unlock()
-	}
-
-	return histogram
+	return m.histograms.value(name, prometheus.HistogramOpts{
+		Namespace: mtx.namespace,
+		Subsystem: m.subsystem,
+		Name:      name,
+	})
 }

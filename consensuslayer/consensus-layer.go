@@ -9,6 +9,7 @@ import (
 
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
 	"github.com/allegro/bigcache/v3"
+	apiv1 "github.com/attestantio/go-eth2-client/api/v1"
 	"github.com/attestantio/go-eth2-client/http"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	rptypes "github.com/rocket-pool/rocketpool-go/types"
@@ -36,7 +37,8 @@ type ConsensusLayer struct {
 	// Disconnects from the bn
 	disconnect func()
 
-	m *metrics.MetricsRegistry
+	m             *metrics.MetricsRegistry
+	slotsPerEpoch uint64
 }
 
 // NewConsensusLayer creates a new consensus layer client using the provided url and logger
@@ -47,6 +49,22 @@ func NewConsensusLayer(bnURL *url.URL, logger *zap.Logger) *ConsensusLayer {
 	out.m = metrics.NewMetricsRegistry("consensus_layer")
 
 	return out
+}
+
+func (c *ConsensusLayer) onHeadUpdate(e *apiv1.Event) {
+	headEvent, ok := e.Data.(*apiv1.HeadEvent)
+	if !ok {
+		c.logger.Warn("Couldn't convert event to headEvent", zap.Any("event", e))
+		return
+	}
+
+	c.logger.Debug("Observed consensus slot", zap.Uint64("slot", uint64(headEvent.Slot)), zap.Bool("new_epoch", headEvent.EpochTransition))
+
+	// The CL doesn't report events very reliably, probably an issue with the attestantio client.
+	// So, every single slot, we will check to see if the epoch advanced.
+	epoch := uint64(headEvent.Slot) / c.slotsPerEpoch
+
+	metrics.OnHead(epoch)
 }
 
 // Init connects to the consensus layer and initializes the cache
@@ -65,7 +83,21 @@ func (c *ConsensusLayer) Init() error {
 	}
 	c.client = client.(*http.Service)
 
+	c.slotsPerEpoch, err = c.client.SlotsPerEpoch(context.Background())
+	if err != nil {
+		c.logger.Warn("Couldn't get slots per epoch, defaulting to 32", zap.Error(err))
+		c.slotsPerEpoch = 32
+	} else {
+		c.logger.Debug("Fetched slots per epoch", zap.Uint64("slots", c.slotsPerEpoch))
+	}
+
 	c.logger.Debug("Connected to Beacon Node", zap.String("url", c.bnURL.String()))
+
+	// Listen for head updates
+	err = c.client.Events(context.Background(), []string{"head"}, c.onHeadUpdate)
+	if err != nil {
+		c.logger.Warn("Clouldn't subscribe to CL events. Metrics will be inaccurate", zap.Error(err))
+	}
 
 	cacheConfig := bigcache.DefaultConfig(cacheTTL)
 	cacheConfig.CleanWindow = cacheGC
