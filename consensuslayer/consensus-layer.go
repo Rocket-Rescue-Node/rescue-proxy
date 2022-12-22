@@ -58,12 +58,13 @@ func (c *ConsensusLayer) onHeadUpdate(e *apiv1.Event) {
 		return
 	}
 
-	// We only care about epoch boundaries, so return early if this isn't one
-	if !headEvent.EpochTransition {
-		return
-	}
+	c.logger.Debug("Observed consensus slot", zap.Uint64("slot", uint64(headEvent.Slot)), zap.Bool("new_epoch", headEvent.EpochTransition))
 
-	metrics.NewEpoch(uint64(headEvent.Slot) / c.slotsPerEpoch)
+	// The CL doesn't report events very reliably, probably an issue with the attestantio client.
+	// So, every single slot, we will check to see if the epoch advanced.
+	epoch := uint64(headEvent.Slot) / c.slotsPerEpoch
+
+	metrics.OnHead(epoch)
 }
 
 // Init connects to the consensus layer and initializes the cache
