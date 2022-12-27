@@ -263,6 +263,9 @@ func main() {
 	// Create a credential manager
 	cm := credentials.NewCredentialManager(sha256.New, []byte(config.CredentialSecret))
 
+	// Initialize the authentication library
+	router.InitAuth(cm, config.AuthValidityWindow)
+
 	// Spin up the server on a different goroutine, since it blocks.
 	var serverWaitGroup sync.WaitGroup
 	serverWaitGroup.Add(1)
@@ -271,7 +274,6 @@ func main() {
 		router := &router.ProxyRouter{
 			EL:                 el,
 			CL:                 cl,
-			CM:                 cm,
 			Logger:             logger,
 			AuthValidityWindow: config.AuthValidityWindow,
 		}
@@ -294,7 +296,6 @@ func main() {
 		grpcRouter := &router.GRPCRouter{
 			EL:                 el,
 			CL:                 cl,
-			CM:                 cm,
 			Logger:             logger,
 			AuthValidityWindow: config.AuthValidityWindow,
 		}
