@@ -3,7 +3,6 @@ package router
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -12,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Rocket-Pool-Rescue-Node/credentials"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
@@ -20,7 +18,6 @@ import (
 	"github.com/gorilla/mux"
 	rptypes "github.com/rocket-pool/rocketpool-go/types"
 	"go.uber.org/zap"
-	"google.golang.org/protobuf/proto"
 )
 
 type ProxyRouter struct {
@@ -28,7 +25,6 @@ type ProxyRouter struct {
 	Logger             *zap.Logger
 	EL                 *executionlayer.ExecutionLayer
 	CL                 *consensuslayer.ConsensusLayer
-	CM                 *credentials.CredentialManager
 	AuthValidityWindow time.Duration
 	m                  *metrics.MetricsRegistry
 }
@@ -228,56 +224,11 @@ func (pr *ProxyRouter) authenticationMiddleware(next http.Handler) http.Handler 
 			return
 		}
 
-		// The username is just the base64 encoding of the node id. We'll want to check it against the credential, so decode it
-		decoder := base64.NewDecoder(base64.URLEncoding, bytes.NewReader([]byte(username)))
-		nodeID, err := io.ReadAll(decoder)
+		ac, err := authenticate(username, password)
 		if err != nil {
-			pr.m.Counter("malformed_username").Inc()
-			pr.Logger.Debug("Received request with malformed username on guarded endpoint", zap.Error(err))
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-
-		// The password is our hmac credential
-		decoder = base64.NewDecoder(base64.URLEncoding, bytes.NewReader([]byte(password)))
-		decoded, err := io.ReadAll(decoder)
-		if err != nil {
-			pr.m.Counter("malformed_password").Inc()
-			pr.Logger.Debug("Received request with malformed password on guarded endpoint", zap.Error(err))
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-
-		// Unmarshal the protobuf
-		unmarshaled := &credentials.AuthenticatedCredential{}
-		err = proto.Unmarshal(decoded, unmarshaled.Pb())
-		if err != nil {
-			pr.m.Counter("malformed_protobuf").Inc()
-			pr.Logger.Debug("Received request with malformed password protobuf on guarded endpoint", zap.Error(err))
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-
-		// We don't require the nodeID is present in the password, since it is passed as the user,
-		// however, it was used to generate the hmac, so repopulate it
-		// This also ensures that the password was generated for the requesting node
-		unmarshaled.Credential.NodeId = nodeID
-		err = pr.CM.Verify(unmarshaled)
-		if err != nil {
-			pr.m.Counter("invalid_hmac").Inc()
-			pr.Logger.Debug("Unable to verify hmac on guarded endpoint", zap.Error(err))
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-
-		// Grab the timestamp and make sure the credential is recent enough
-		ts := time.Unix(unmarshaled.Credential.Timestamp, 0)
-		now := time.Now()
-
-		if ts.Before(now) && now.Sub(ts) > pr.AuthValidityWindow {
-			pr.m.Counter("expired_credentials").Inc()
-			pr.Logger.Debug("Stale credential seen on guarded endpoint")
-			w.WriteHeader(http.StatusUnauthorized)
+			pr.m.Counter("unauthed").Inc()
+			pr.Logger.Debug("Unable to authenticate credentials", zap.Error(err))
+			w.WriteHeader(err.httpStatus)
 			return
 		}
 
@@ -285,7 +236,7 @@ func (pr *ProxyRouter) authenticationMiddleware(next http.Handler) http.Handler 
 		pr.m.Counter("auth_ok").Inc()
 		pr.Logger.Debug("Proxying Guarded URI", zap.String("uri", r.RequestURI))
 		// Add the node address to the request context
-		ctx := context.WithValue(r.Context(), prContextKey("node"), nodeID)
+		ctx := context.WithValue(r.Context(), prContextKey("node"), ac.Credential.NodeId)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

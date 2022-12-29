@@ -8,7 +8,6 @@ require (
 	github.com/attestantio/go-eth2-client v0.14.5
 	github.com/ethereum/go-ethereum v1.10.26
 	github.com/gorilla/mux v1.8.0
-	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
 	github.com/mattn/go-sqlite3 v1.11.0
 	github.com/mwitkow/grpc-proxy v0.0.0-20220126150247-db34e7bfee32
 	github.com/prometheus/client_golang v1.12.2

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Rocket-Pool-Rescue-Node/credentials"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
@@ -33,7 +32,6 @@ type GRPCRouter struct {
 	Logger             *zap.Logger
 	EL                 *executionlayer.ExecutionLayer
 	CL                 *consensuslayer.ConsensusLayer
-	CM                 *credentials.CredentialManager
 	AuthValidityWindow time.Duration
 	m                  *metrics.MetricsRegistry
 }
@@ -224,29 +222,11 @@ func (g *GRPCRouter) payloadInterceptor() grpc.StreamServerInterceptor {
 				return status.Error(codes.Unauthenticated, "headers invalid")
 			}
 
-			ac := credentials.AuthenticatedCredential{}
-			err := ac.Base64URLDecode(auth[0], auth[1])
+			ac, err := authenticate(auth[0], auth[1])
 			if err != nil {
-				g.m.Counter("auth_header_invalid_b64").Inc()
-				g.Logger.Debug("Unable to b64url decode credentials", zap.Error(err))
-				return status.Error(codes.Unauthenticated, "auth header could not be verified")
-			}
-
-			err = g.CM.Verify(&ac)
-			if err != nil {
-				g.m.Counter("invalid_credentials").Inc()
-				g.Logger.Debug("Unable to verify hmac on guarded endpoint", zap.Error(err))
-				return status.Error(codes.Unauthenticated, "auth header could not be verified")
-			}
-
-			// Grab the timestamp and make sure the credential is recent enough
-			ts := time.Unix(ac.Credential.Timestamp, 0)
-			now := time.Now()
-
-			if ts.Before(now) && now.Sub(ts) > g.AuthValidityWindow {
-				g.m.Counter("expired_credentials").Inc()
-				g.Logger.Debug("Stale credential seen on guarded endpoint")
-				return status.Error(codes.PermissionDenied, "credential expired")
+				g.m.Counter("unauthed").Inc()
+				g.Logger.Debug("Unable to authenticate credentials", zap.Error(err))
+				return err.GRPCError()
 			}
 
 			g.m.Counter("auth_ok").Inc()

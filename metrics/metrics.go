@@ -46,6 +46,10 @@ func Init(namespace string) (http.Handler, error) {
 	return promhttp.Handler(), nil
 }
 
+func Deinit() {
+	mtx = nil
+}
+
 // NewMetricsRegistry creates a new MetricsRegistry for a given module
 // to use.
 func NewMetricsRegistry(subsystem string) *MetricsRegistry {
