@@ -109,6 +109,51 @@ func rollback(tx *sql.Tx) {
 	_ = tx.Rollback()
 }
 
+func cloneSqlDB(dst, src *sql.DB) error {
+
+	srcConn, err := src.Conn(context.Background())
+	if err != nil {
+		return err
+	}
+
+	dstConn, err := dst.Conn(context.Background())
+	if err != nil {
+		return err
+	}
+
+	err = dstConn.Raw(func(dstDConn any) error {
+		dstSQLiteConn, ok := dstDConn.(*driver.SQLiteConn)
+		if !ok {
+			return fmt.Errorf("failed to cast connection to sqlite")
+		}
+
+		return srcConn.Raw(func(srcDConn any) error {
+			srcSQLiteConn, ok := srcDConn.(*driver.SQLiteConn)
+			if !ok {
+				return fmt.Errorf("failed to cast connection to sqlite")
+			}
+
+			backup, err := dstSQLiteConn.Backup("main", srcSQLiteConn, "main")
+			if err != nil {
+				return err
+			}
+
+			done, err := backup.Step(-1)
+			if !done {
+				return fmt.Errorf("couldn't clone db in a single pass")
+			}
+			if err != nil {
+				return err
+			}
+
+			err = backup.Finish()
+			return err
+		})
+	})
+
+	return err
+}
+
 func (s *SqliteCache) init() error {
 	var err error
 
@@ -152,45 +197,7 @@ func (s *SqliteCache) init() error {
 		}
 		defer src.Close()
 
-		srcConn, err := src.Conn(context.Background())
-		if err != nil {
-			return err
-		}
-
-		dstConn, err := s.db.Conn(context.Background())
-		if err != nil {
-			return err
-		}
-
-		err = dstConn.Raw(func(dstDConn any) error {
-			dstSQLiteConn, ok := dstDConn.(*driver.SQLiteConn)
-			if !ok {
-				return fmt.Errorf("failed to cast connection to sqlite")
-			}
-
-			return srcConn.Raw(func(srcDConn any) error {
-				srcSQLiteConn, ok := srcDConn.(*driver.SQLiteConn)
-				if !ok {
-					return fmt.Errorf("failed to cast connection to sqlite")
-				}
-
-				backup, err := dstSQLiteConn.Backup("main", srcSQLiteConn, "main")
-				if err != nil {
-					return err
-				}
-
-				done, err := backup.Step(-1)
-				if !done {
-					return fmt.Errorf("couldn't load snapshot in a single pass")
-				}
-				if err != nil {
-					return err
-				}
-
-				err = backup.Finish()
-				return err
-			})
-		})
+		err = cloneSqlDB(s.db, src)
 		if err != nil {
 			return err
 		}
@@ -265,47 +272,7 @@ func (s *SqliteCache) serialize() error {
 	}
 	defer dst.Close()
 
-	srcConn, err := s.db.Conn(context.Background())
-	if err != nil {
-		return err
-	}
-
-	dstConn, err := dst.Conn(context.Background())
-	if err != nil {
-		return err
-	}
-
-	err = dstConn.Raw(func(dstDConn any) error {
-		dstSQLiteConn, ok := dstDConn.(*driver.SQLiteConn)
-		if !ok {
-			return fmt.Errorf("failed to cast connection to sqlite")
-		}
-
-		return srcConn.Raw(func(srcDConn any) error {
-			srcSQLiteConn, ok := srcDConn.(*driver.SQLiteConn)
-			if !ok {
-				return fmt.Errorf("failed to cast connection to sqlite")
-			}
-
-			backup, err := dstSQLiteConn.Backup("main", srcSQLiteConn, "main")
-			if err != nil {
-				return err
-			}
-
-			done, err := backup.Step(-1)
-			if !done {
-				return fmt.Errorf("couldn't serialize snapshot in a single pass")
-			}
-			if err != nil {
-				return err
-			}
-
-			err = backup.Finish()
-			return err
-		})
-	})
-
-	return err
+	return cloneSqlDB(dst, s.db)
 }
 
 func (s *SqliteCache) getMinipoolNode(pubkey rptypes.ValidatorPubkey) (common.Address, error) {
