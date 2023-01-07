@@ -11,4 +11,4 @@ RUN make
 
 FROM debian:buster
 COPY --from=build /src/rescue-proxy /bin/rescue-proxy
-ENTRYPOINT /bin/rescue-proxy
+ENTRYPOINT ["/bin/rescue-proxy"]
