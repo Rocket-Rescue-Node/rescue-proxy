@@ -19,6 +19,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -26,14 +27,19 @@ import (
 )
 
 type GRPCRouter struct {
-	proxy              *grpc.Server
-	upstream           *grpc.ClientConn
-	listener           net.Listener
 	Logger             *zap.Logger
 	EL                 *executionlayer.ExecutionLayer
 	CL                 *consensuslayer.ConsensusLayer
 	AuthValidityWindow time.Duration
-	m                  *metrics.MetricsRegistry
+	TLS                struct {
+		CertFile string
+		KeyFile  string
+	}
+
+	proxy    *grpc.Server
+	upstream *grpc.ClientConn
+	listener net.Listener
+	m        *metrics.MetricsRegistry
 }
 
 type validationCb func(proto.Message, common.Address) error
@@ -260,6 +266,15 @@ func (g *GRPCRouter) director() proxy.StreamDirector {
 	}
 }
 
+func (g *GRPCRouter) transportCredentials() (credentials.TransportCredentials, error) {
+
+	if g.TLS.CertFile == "" {
+		return insecure.NewCredentials(), nil
+	}
+
+	return credentials.NewServerTLSFromFile(g.TLS.CertFile, g.TLS.KeyFile)
+}
+
 func (g *GRPCRouter) Init(listenAddr string, beaconAddr string) error {
 	var err error
 
@@ -272,8 +287,13 @@ func (g *GRPCRouter) Init(listenAddr string, beaconAddr string) error {
 
 	g.Logger.Info("Starting grpc server", zap.String("url", listenAddr), zap.String("upstream", beaconAddr))
 
+	tc, err := g.transportCredentials()
+	if err != nil {
+		return err
+	}
+
 	g.upstream, err = grpc.Dial(beaconAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()))
+		grpc.WithTransportCredentials(tc))
 	if err != nil {
 		return err
 	}
