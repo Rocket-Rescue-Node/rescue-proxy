@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -11,15 +12,26 @@ import (
 
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/pb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
 	addr := flag.String("addr", "0.0.0.0:8080", "the address where the api is responding to grpc requests")
 	odao := flag.Bool("odao", false, "pass this to get the list of odao nodes")
+	useTLS := flag.Bool("tls", false, "use TLS to connect to the api")
+
 	flag.Parse()
 
-	conn, err := grpc.Dial(*addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	var tc credentials.TransportCredentials
+	if *useTLS {
+		// An empty tls.Config{} will use the system's root CA set.
+		tc = credentials.NewTLS(&tls.Config{})
+	} else {
+		tc = insecure.NewCredentials()
+	}
+
+	conn, err := grpc.Dial(*addr, grpc.WithTransportCredentials(tc))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
