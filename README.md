@@ -25,7 +25,7 @@ Usage of ./rescue-proxy:
   -bn-url string
         URL to the beacon node to proxy, eg, http://localhost:5052
   -cache-path string
-        A path to cache EL data in. Leave blank to disble caching.
+        A path to cache EL data in. Leave blank to disable caching.
   -debug
         Whether to enable verbose logging
   -ec-url string
