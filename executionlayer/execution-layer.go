@@ -51,6 +51,7 @@ type ExecutionLayer struct {
 	rocketNodeManager           *rocketpool.Contract
 	rocketMinipoolManager       *rocketpool.Contract
 	smoothingPool               *rocketpool.Contract
+	rEth                        *rocketpool.Contract
 	rocketDaoNodeTrustedActions *rocketpool.Contract
 
 	// The "topics" of the events we subscribe to
@@ -538,6 +539,11 @@ func (e *ExecutionLayer) Init() error {
 		return err
 	}
 
+	e.rEth, err = e.rp.GetContract("rocketTokenRETH", opts)
+	if err != nil {
+		return err
+	}
+
 	e.rocketDaoNodeTrustedActions, err = e.rp.GetContract("rocketDAONodeTrustedActions", opts)
 	if err != nil {
 		return err
@@ -693,4 +699,9 @@ func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey rptypes.ValidatorPubkey, q
 	}
 
 	return &nodeInfo.feeDistributor, false
+}
+
+// REthAddress is a convenience function to get the rEth contract address
+func (e *ExecutionLayer) REthAddress() *common.Address {
+	return e.rEth.Address
 }
