@@ -630,14 +630,15 @@ func (e *ExecutionLayer) Init() error {
 
 // Deinit shuts down this ExecutionLayer
 func (e *ExecutionLayer) Deinit() {
-	if e.ethclientShutdownCb == nil {
-		return
-	}
+	e.logger.Debug("Stopping ethclient")
 	e.shutdown = true
-	e.ethclientShutdownCb()
+	if e.ethclientShutdownCb != nil {
+		e.ethclientShutdownCb()
+	}
 	close(e.events)
 	close(e.newHeaders)
 	e.wg.Wait()
+	e.logger.Debug("Serializing EL cache")
 	err := e.cache.deinit()
 	if err != nil {
 		e.logger.Error("error while stopping the cache", zap.Error(err))

@@ -92,6 +92,6 @@ func (a *API) Init() error {
 }
 
 func (a *API) Deinit() {
-	a.server.GracefulStop()
+	a.server.Stop()
 	a.listener.Close()
 }
