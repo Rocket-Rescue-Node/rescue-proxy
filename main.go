@@ -334,15 +334,22 @@ func main() {
 	listener.Close()
 
 	api.Deinit()
+	logger.Debug("Stopped API")
 
 	// Wait for the listener/server to exit
 	serverWaitGroup.Wait()
+	logger.Debug("Stopped listeners")
 
 	// Disconnect from the execution client
 	el.Deinit()
+	logger.Debug("Stopped executionlayer")
 	cl.Deinit()
+	logger.Debug("Stopped consensuslayer")
 
 	// Shut down admin server
 	adminServer.Close()
+	logger.Debug("Stopped internal API")
+
+	logger.Debug("Flushing logs")
 	_ = logger.Sync()
 }
