@@ -100,16 +100,28 @@ func (g *GRPCRouter) validatePrepareBeaconProposer(m proto.Message, nodeAddr com
 			return status.Error(codes.PermissionDenied, "pubkey belongs to someone else or isn't owned by a rp node")
 		}
 
-		if !bytes.Equal(expectedFeeRecipient.Bytes(), proposer.FeeRecipient) {
-			g.m.Counter("prepare_beacon_incorrect_fee_recipient").Inc()
-			// Looks like a cheater- fee recipient doesn't match expectations
-			g.Logger.Warn("prepare_beacon_proposer called with unexpected fee recipient",
-				zap.String("expected", expectedFeeRecipient.String()), zap.String("got", hex.EncodeToString(proposer.FeeRecipient)))
-			return status.Error(codes.PermissionDenied, "incorrect fee recipient")
+		// If the fee recipient matches expectations, good, move on to the next one
+		if bytes.Equal(expectedFeeRecipient.Bytes(), proposer.FeeRecipient) {
+			g.m.Counter("prepare_beacon_correct_fee_recipient").Inc()
+			metrics.ObserveValidator(nodeAddr, pubkey)
+			continue
 		}
 
-		metrics.ObserveValidator(nodeAddr, pubkey)
-		g.m.Counter("prepare_beacon_correct_fee_recipient").Inc()
+		// rETH address is a 'safe' default fee recipient, and should be allowed.
+		// However, it does indicate a misconfigured node, so log it.
+		if bytes.Equal(g.EL.REthAddress().Bytes(), proposer.FeeRecipient) {
+			g.m.Counter("prepare_beacon_reth_fee_recipient").Inc()
+			g.Logger.Warn("prepare_beacon_proposer called with rETH fee recipient",
+				zap.String("expected", expectedFeeRecipient.String()),
+				zap.String("node", nodeAddr.String()))
+			continue
+		}
+
+		// Looks like a cheater- fee recipient doesn't match expectations
+		g.m.Counter("prepare_beacon_incorrect_fee_recipient").Inc()
+		g.Logger.Warn("prepare_beacon_proposer called with unexpected fee recipient",
+			zap.String("expected", expectedFeeRecipient.String()), zap.String("got", hex.EncodeToString(proposer.FeeRecipient)))
+		return status.Error(codes.PermissionDenied, "incorrect fee recipient")
 	}
 
 	return nil
@@ -147,16 +159,28 @@ func (g *GRPCRouter) validateRegisterValidators(m proto.Message, nodeAddr common
 			return status.Error(codes.PermissionDenied, "pubkey belongs to someone else")
 		}
 
-		if !bytes.Equal(expectedFeeRecipient.Bytes(), registration.Message.FeeRecipient) {
-			g.m.Counter("register_validator_incorrect_fee_recipient").Inc()
-			g.Logger.Warn("register_validator called with unexpected fee recipient",
-				zap.String("expected", expectedFeeRecipient.String()),
-				zap.String("got", hex.EncodeToString(registration.Message.FeeRecipient)))
-			return status.Error(codes.PermissionDenied, "incorrect fee recipient")
+		if bytes.Equal(expectedFeeRecipient.Bytes(), registration.Message.FeeRecipient) {
+			// This fee recipient matches expectations, carry on to the next validator
+			metrics.ObserveValidator(nodeAddr, *pubkey)
+			g.m.Counter("register_validator_correct_fee_recipient").Inc()
+			continue
 		}
 
-		metrics.ObserveValidator(nodeAddr, *pubkey)
-		g.m.Counter("register_validator_correct_fee_recipient").Inc()
+		if bytes.Equal(g.EL.REthAddress().Bytes(), registration.Message.FeeRecipient) {
+			// rETH address is a 'safe' default fee recipient, and should be allowed.
+			// However, it does indicate a misconfigured node, so log it.
+			g.m.Counter("register_validator_reth_fee_recipient").Inc()
+			g.Logger.Warn("register_validator called with rETH fee recipient",
+				zap.String("expected", expectedFeeRecipient.String()),
+				zap.String("node", nodeAddr.String()))
+			continue
+		}
+
+		g.m.Counter("register_validator_incorrect_fee_recipient").Inc()
+		g.Logger.Warn("register_validator called with unexpected fee recipient",
+			zap.String("expected", expectedFeeRecipient.String()),
+			zap.String("got", hex.EncodeToString(registration.Message.FeeRecipient)))
+		return status.Error(codes.PermissionDenied, "incorrect fee recipient")
 	}
 
 	return nil

@@ -112,17 +112,30 @@ func (pr *ProxyRouter) prepareBeaconProposer() http.HandlerFunc {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
-			if !strings.EqualFold(expectedFeeRecipient.String(), proposer.FeeRecipient) {
-				// Looks like a cheater- fee recipient doesn't match expectations
-				pr.m.Counter("prepare_beacon_incorrect_fee_recipient").Inc()
-				pr.Logger.Warn("prepare_beacon_proposer called with unexpected fee recipient",
-					zap.String("expected", expectedFeeRecipient.String()), zap.String("got", proposer.FeeRecipient))
-				w.WriteHeader(http.StatusConflict)
-				return
+
+			// If the fee recipient matches expectations, good, move on to the next one
+			if strings.EqualFold(expectedFeeRecipient.String(), proposer.FeeRecipient) {
+				pr.m.Counter("prepare_beacon_correct_fee_recipient").Inc()
+				metrics.ObserveValidator(authedNodeAddr, pubkey)
+				continue
 			}
 
-			pr.m.Counter("prepare_beacon_correct_fee_recipient").Inc()
-			metrics.ObserveValidator(authedNodeAddr, pubkey)
+			// rETH address is a 'safe' default fee recipient, and should be allowed.
+			// However, it does indicate a misconfigured node, so log it.
+			if strings.EqualFold(pr.EL.REthAddress().String(), proposer.FeeRecipient) {
+				pr.m.Counter("prepare_beacon_reth_fee_recipient").Inc()
+				pr.Logger.Warn("prepare_beacon_proposer called with rETH fee recipient",
+					zap.String("expected", expectedFeeRecipient.String()),
+					zap.String("node", authedNodeAddr.String()))
+				continue
+			}
+
+			// Looks like a cheater- fee recipient doesn't match expectations
+			pr.m.Counter("prepare_beacon_incorrect_fee_recipient").Inc()
+			pr.Logger.Warn("prepare_beacon_proposer called with unexpected fee recipient",
+				zap.String("expected", expectedFeeRecipient.String()), zap.String("got", proposer.FeeRecipient))
+			w.WriteHeader(http.StatusConflict)
+			return
 		}
 
 		// At this point all the fee recipients match our expectations. Proxy the request
@@ -186,17 +199,29 @@ func (pr *ProxyRouter) registerValidator() http.HandlerFunc {
 				return
 			}
 
-			if !strings.EqualFold(expectedFeeRecipient.String(), validator.Message.FeeRecipient) {
-				pr.m.Counter("register_validator_incorrect_fee_recipient").Inc()
-				pr.Logger.Warn("register_validator called with unexpected fee recipient",
-					zap.String("expected", expectedFeeRecipient.String()), zap.String("got", validator.Message.FeeRecipient))
-				w.WriteHeader(http.StatusConflict)
-				return
+			if strings.EqualFold(expectedFeeRecipient.String(), validator.Message.FeeRecipient) {
+				// This fee recipient matches expectations, carry on to the next validator
+				pr.m.Counter("register_validator_correct_fee_recipient").Inc()
+				metrics.ObserveValidator(authedNodeAddr, pubkey)
+				continue
 			}
 
-			// This fee recipient matches expectations, carry on to the next validator
-			pr.m.Counter("register_validator_correct_fee_recipient").Inc()
-			metrics.ObserveValidator(authedNodeAddr, pubkey)
+			if strings.EqualFold(pr.EL.REthAddress().String(), validator.Message.FeeRecipient) {
+				// rETH address is a 'safe' default fee recipient, and should be allowed.
+				// However, it does indicate a misconfigured node, so log it.
+				pr.m.Counter("register_validator_reth_fee_recipient").Inc()
+				pr.Logger.Warn("register_validator called with rETH fee recipient",
+					zap.String("expected", expectedFeeRecipient.String()),
+					zap.String("node", authedNodeAddr.String()))
+				continue
+			}
+
+			pr.m.Counter("register_validator_incorrect_fee_recipient").Inc()
+			pr.Logger.Warn("register_validator called with unexpected fee recipient",
+				zap.String("expected", expectedFeeRecipient.String()), zap.String("got", validator.Message.FeeRecipient))
+			w.WriteHeader(http.StatusConflict)
+			return
+
 		}
 
 		// At this point all the fee recipients match our expectations. Proxy the request
