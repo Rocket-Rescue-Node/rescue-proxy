@@ -125,7 +125,8 @@ func (pr *ProxyRouter) prepareBeaconProposer() http.HandlerFunc {
 			if strings.EqualFold(pr.EL.REthAddress().String(), proposer.FeeRecipient) {
 				pr.m.Counter("prepare_beacon_reth_fee_recipient").Inc()
 				pr.Logger.Warn("prepare_beacon_proposer called with rETH fee recipient",
-					zap.String("expected", expectedFeeRecipient.String()))
+					zap.String("expected", expectedFeeRecipient.String()),
+					zap.String("node", authedNodeAddr.String()))
 				continue
 			}
 
@@ -210,7 +211,8 @@ func (pr *ProxyRouter) registerValidator() http.HandlerFunc {
 				// However, it does indicate a misconfigured node, so log it.
 				pr.m.Counter("register_validator_reth_fee_recipient").Inc()
 				pr.Logger.Warn("register_validator called with rETH fee recipient",
-					zap.String("expected", expectedFeeRecipient.String()))
+					zap.String("expected", expectedFeeRecipient.String()),
+					zap.String("node", authedNodeAddr.String()))
 				continue
 			}
 

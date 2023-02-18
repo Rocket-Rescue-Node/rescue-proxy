@@ -112,7 +112,8 @@ func (g *GRPCRouter) validatePrepareBeaconProposer(m proto.Message, nodeAddr com
 		if bytes.Equal(g.EL.REthAddress().Bytes(), proposer.FeeRecipient) {
 			g.m.Counter("prepare_beacon_reth_fee_recipient").Inc()
 			g.Logger.Warn("prepare_beacon_proposer called with rETH fee recipient",
-				zap.String("expected", expectedFeeRecipient.String()))
+				zap.String("expected", expectedFeeRecipient.String()),
+				zap.String("node", nodeAddr.String()))
 			continue
 		}
 
@@ -170,7 +171,8 @@ func (g *GRPCRouter) validateRegisterValidators(m proto.Message, nodeAddr common
 			// However, it does indicate a misconfigured node, so log it.
 			g.m.Counter("register_validator_reth_fee_recipient").Inc()
 			g.Logger.Warn("register_validator called with rETH fee recipient",
-				zap.String("expected", expectedFeeRecipient.String()))
+				zap.String("expected", expectedFeeRecipient.String()),
+				zap.String("node", nodeAddr.String()))
 			continue
 		}
 
