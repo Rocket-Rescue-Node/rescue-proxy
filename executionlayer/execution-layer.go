@@ -79,10 +79,10 @@ type ExecutionLayer struct {
 	// wg to be blocked on to let pending events be processed for graceful shutdown
 	wg sync.WaitGroup
 
-	// Sometimes, we get errors from the subscription error channels on shutdown-
-	// presumably, the Unsubscribe() call is less graceful than ideal.
-	// Set this to true before calling Unsubscribe() so we can ignore subsequent errors
-	shutdown bool
+	// A context that can be canceled in order to gracefully stop the EL abstraction
+	ctx context.Context
+	// A function that cancels that context
+	shutdown func()
 
 	m *metrics.MetricsRegistry
 }
@@ -326,7 +326,8 @@ func (e *ExecutionLayer) backfillEvents() error {
 
 // Will likely attempt to reconnect, and will overwrite the pointers passed with the new subscription objects
 func (e *ExecutionLayer) handleSubscriptionError(err error, logEventSub **ethereum.Subscription, headerSub **ethereum.Subscription) {
-	if e.shutdown {
+	if e.ctx.Err() != nil {
+		// We're shutting down, so return quietly
 		return
 	}
 
@@ -334,6 +335,7 @@ func (e *ExecutionLayer) handleSubscriptionError(err error, logEventSub **ethere
 	e.logger.Warn("Error received from eth client subscription", zap.Error(err))
 	// Attempt to reconnect `reconnectRetries` times with steadily increasing waits
 	for i := 0; i < reconnectRetries; i++ {
+
 		e.logger.Warn("Attempting to reconnect", zap.Int("attempt", i+1))
 		e.m.Counter("reconnection_attempt").Inc()
 		s, err := e.client.SubscribeFilterLogs(context.Background(), e.query, e.events)
@@ -365,7 +367,14 @@ func (e *ExecutionLayer) handleSubscriptionError(err error, logEventSub **ethere
 		}
 
 		e.logger.Warn("Error trying to reconnect to execution client", zap.Error(err))
-		time.Sleep(time.Duration(i) * (5 * time.Second))
+		select {
+		case <-e.ctx.Done():
+			// We're shutting down, so exit now
+			e.logger.Debug("Terminating while re-establishing the connection to the EL")
+			return
+		case <-time.After(time.Duration(i) * (5 * time.Second)):
+			// Loop again
+		}
 	}
 
 	// Failed to reconnect after 10 tries
@@ -482,6 +491,8 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 // Init creates and warms up the ExecutionLayer cache.
 func (e *ExecutionLayer) Init() error {
 	var err error
+
+	e.ctx, e.shutdown = context.WithCancel(context.Background())
 
 	if err := e.cache.init(); err != nil {
 		return err
@@ -631,7 +642,7 @@ func (e *ExecutionLayer) Init() error {
 // Deinit shuts down this ExecutionLayer
 func (e *ExecutionLayer) Deinit() {
 	e.logger.Debug("Stopping ethclient")
-	e.shutdown = true
+	e.shutdown()
 	if e.ethclientShutdownCb != nil {
 		e.ethclientShutdownCb()
 	}
