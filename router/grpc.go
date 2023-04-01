@@ -38,7 +38,6 @@ type GRPCRouter struct {
 
 	proxy    *grpc.Server
 	upstream *grpc.ClientConn
-	listener net.Listener
 	m        *metrics.MetricsRegistry
 }
 
@@ -300,11 +299,10 @@ func (g *GRPCRouter) transportCredentials() (credentials.TransportCredentials, e
 }
 
 func (g *GRPCRouter) Init(listenAddr string, beaconAddr string) error {
-	var err error
 
 	g.m = metrics.NewMetricsRegistry("grpc_proxy")
 
-	g.listener, err = net.Listen("tcp", listenAddr)
+	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		return err
 	}
@@ -330,7 +328,7 @@ func (g *GRPCRouter) Init(listenAddr string, beaconAddr string) error {
 
 	go func() {
 		server := g.proxy
-		if err := server.Serve(g.listener); err != nil {
+		if err := server.Serve(listener); err != nil {
 			g.Logger.Panic("gRPC proxy server stopped", zap.Error(err))
 		}
 	}()
@@ -342,6 +340,5 @@ func (g *GRPCRouter) Deinit() {
 	g.Logger.Debug("Stopping grpc proxy")
 	// GracefulStop doesn't close streams opened by the upstream, so call Stop instead
 	g.proxy.Stop()
-	g.listener.Close()
 	g.upstream.Close()
 }

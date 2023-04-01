@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -280,8 +279,6 @@ func main() {
 	router.InitAuth(cm, config.AuthValidityWindow)
 
 	// Spin up the server on a different goroutine, since it blocks.
-	var serverWaitGroup sync.WaitGroup
-	serverWaitGroup.Add(1)
 	server := http.Server{}
 	go func() {
 		router := &router.ProxyRouter{
@@ -295,7 +292,6 @@ func main() {
 		if err := server.Serve(listener); err != nil {
 			logger.Info("Server stopped", zap.Error(err))
 		}
-		serverWaitGroup.Done()
 	}()
 
 	api := api.NewAPI(config.APIListenAddr, el, logger)
@@ -330,15 +326,23 @@ func main() {
 
 	// Shut down gracefully
 	logger.Info("Received signal, shutting down")
-	_ = server.Shutdown(context.Background())
-	listener.Close()
+	// If gracefully shutting down the http server takes too long,
+	// forge ahead without finishing.
+	stopCtx, stopNow := context.WithTimeout(context.Background(), 3*time.Second)
+	// We have no reason to call cancel, but govet doesn't want the context to
+	// leak, so we must.
+	// Defer it so it is called when we exit.
+	defer stopNow()
+	err = server.Shutdown(stopCtx)
+	if err != nil {
+		// Either an error occurred while gracefully stopping the server, or the deadline elapsed
+		logger.Info("Error terminating http server", zap.Error(err))
+		// Forcefully stop the server now
+		server.Close()
+	}
 
 	api.Deinit()
 	logger.Debug("Stopped API")
-
-	// Wait for the listener/server to exit
-	serverWaitGroup.Wait()
-	logger.Debug("Stopped listeners")
 
 	// Disconnect from the execution client
 	el.Deinit()
