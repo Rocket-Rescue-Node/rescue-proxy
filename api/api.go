@@ -17,7 +17,6 @@ type API struct {
 	EL         *executionlayer.ExecutionLayer
 	Logger     *zap.Logger
 	ListenAddr string
-	listener   net.Listener
 	server     *grpc.Server
 	m          *metrics.MetricsRegistry
 }
@@ -70,9 +69,8 @@ func (a *API) GetOdaoNodes(ctx context.Context, request *pb.OdaoNodesRequest) (*
 }
 
 func (a *API) Init() error {
-	var err error
 
-	a.listener, err = net.Listen("tcp", a.ListenAddr)
+	listener, err := net.Listen("tcp", a.ListenAddr)
 	if err != nil {
 		return err
 	}
@@ -83,7 +81,7 @@ func (a *API) Init() error {
 
 	a.Logger.Info("Starting grpc server", zap.String("url", a.ListenAddr))
 	go func() {
-		if err := a.server.Serve(a.listener); err != nil {
+		if err := a.server.Serve(listener); err != nil {
 			a.Logger.Panic("gRPC server stopped", zap.Error(err))
 		}
 	}()
@@ -93,5 +91,4 @@ func (a *API) Init() error {
 
 func (a *API) Deinit() {
 	a.server.Stop()
-	a.listener.Close()
 }
