@@ -1,12 +1,9 @@
 package main
 
 import (
-	"context"
 	"crypto/sha256"
 	"flag"
 	"fmt"
-	"net"
-	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -234,14 +231,6 @@ func main() {
 		return
 	}
 
-	// Listen on the provided address
-	listener, err := net.Listen("tcp", config.ListenAddr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to listen on provided address %s\n%v\n", config.ListenAddr, err)
-		os.Exit(1)
-		return
-	}
-
 	// Pick a cache
 	var cache executionlayer.Cache
 	if config.CachePath == "" {
@@ -279,19 +268,32 @@ func main() {
 	router.InitAuth(cm, config.AuthValidityWindow)
 
 	// Spin up the server on a different goroutine, since it blocks.
-	server := http.Server{}
+	var r *router.ProxyRouter
 	go func() {
-		router := &router.ProxyRouter{
+		r = &router.ProxyRouter{
 			EL:                 el,
 			CL:                 cl,
 			Logger:             logger,
 			AuthValidityWindow: config.AuthValidityWindow,
+			Addr:               config.ListenAddr,
+			GRPCAddr:           config.GRPCListenAddr,
+			TLSCertFile:        config.GRPCTLSCertFile,
+			TLSKeyFile:         config.GRPCTLSKeyFile,
 		}
-		router.Init(config.BeaconURL)
+
+		if config.GRPCBeaconAddr != "" {
+			u, err := url.Parse(config.GRPCBeaconAddr)
+			if err != nil {
+				logger.Error("Unable to parse grpc beacon address", zap.String("url", config.GRPCBeaconAddr))
+				os.Exit(1)
+				return
+			}
+
+			r.GRPCBeaconURL = u
+		}
+
 		logger.Info("Starting http server", zap.String("url", config.ListenAddr))
-		if err := server.Serve(listener); err != nil {
-			logger.Info("Server stopped", zap.Error(err))
-		}
+		r.Init(config.BeaconURL)
 	}()
 
 	api := api.NewAPI(config.APIListenAddr, el, logger)
@@ -301,26 +303,6 @@ func main() {
 		return
 	}
 
-	if config.GRPCListenAddr != "" {
-		grpcRouter := &router.GRPCRouter{
-			EL:                 el,
-			CL:                 cl,
-			Logger:             logger,
-			AuthValidityWindow: config.AuthValidityWindow,
-		}
-
-		grpcRouter.TLS.CertFile = config.GRPCTLSCertFile
-		grpcRouter.TLS.KeyFile = config.GRPCTLSKeyFile
-
-		err := grpcRouter.Init(config.GRPCListenAddr, config.GRPCBeaconAddr)
-		if err != nil {
-			logger.Error("Unable to start grpc proxy", zap.Error(err))
-			os.Exit(1)
-			return
-		}
-		defer grpcRouter.Deinit()
-	}
-
 	logger.Debug("Trapping SIGTERM and SIGINT")
 	waitForSignals(os.Interrupt)
 
@@ -328,18 +310,7 @@ func main() {
 	logger.Info("Received signal, shutting down")
 	// If gracefully shutting down the http server takes too long,
 	// forge ahead without finishing.
-	stopCtx, stopNow := context.WithTimeout(context.Background(), 3*time.Second)
-	// We have no reason to call cancel, but govet doesn't want the context to
-	// leak, so we must.
-	// Defer it so it is called when we exit.
-	defer stopNow()
-	err = server.Shutdown(stopCtx)
-	if err != nil {
-		// Either an error occurred while gracefully stopping the server, or the deadline elapsed
-		logger.Info("Error terminating http server", zap.Error(err))
-		// Forcefully stop the server now
-		server.Close()
-	}
+	r.Deinit(3 * time.Second)
 
 	api.Deinit()
 	logger.Debug("Stopped API")

@@ -20,6 +20,7 @@ import (
 	"github.com/rocket-pool/rocketpool-go/node"
 	"github.com/rocket-pool/rocketpool-go/rocketpool"
 	rptypes "github.com/rocket-pool/rocketpool-go/types"
+	_ "github.com/rocket-pool/rocketpool-go/utils/state"
 	"go.uber.org/zap"
 )
 
