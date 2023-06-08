@@ -277,19 +277,9 @@ func main() {
 			AuthValidityWindow: config.AuthValidityWindow,
 			Addr:               config.ListenAddr,
 			GRPCAddr:           config.GRPCListenAddr,
+			GRPCBeaconURL:      config.GRPCBeaconAddr,
 			TLSCertFile:        config.GRPCTLSCertFile,
 			TLSKeyFile:         config.GRPCTLSKeyFile,
-		}
-
-		if config.GRPCBeaconAddr != "" {
-			u, err := url.Parse(config.GRPCBeaconAddr)
-			if err != nil {
-				logger.Error("Unable to parse grpc beacon address", zap.String("url", config.GRPCBeaconAddr))
-				os.Exit(1)
-				return
-			}
-
-			r.GRPCBeaconURL = u
 		}
 
 		logger.Info("Starting http server", zap.String("url", config.ListenAddr))

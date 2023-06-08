@@ -21,7 +21,7 @@ import (
 type ProxyRouter struct {
 	Addr               string
 	GRPCAddr           string
-	GRPCBeaconURL      *url.URL
+	GRPCBeaconURL      string
 	TLSCertFile        string
 	TLSKeyFile         string
 	gbp                *gbp.GuardedBeaconProxy
