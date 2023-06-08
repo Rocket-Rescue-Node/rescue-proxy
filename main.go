@@ -293,7 +293,12 @@ func main() {
 		}
 
 		logger.Info("Starting http server", zap.String("url", config.ListenAddr))
-		r.Init(config.BeaconURL)
+		err := r.Init(config.BeaconURL)
+		if err != nil {
+			logger.Error("Unable to start grpc server", zap.Error(err))
+			os.Exit(1)
+			return
+		}
 	}()
 
 	api := api.NewAPI(config.APIListenAddr, el, logger)

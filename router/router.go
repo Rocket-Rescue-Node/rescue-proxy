@@ -71,7 +71,7 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 		if !found {
 			pr.Logger.Warn("Pubkey for index not found in response from cl.",
 				zap.String("requested index", proposer.ValidatorIndex))
-			return gbp.BadRequest, fmt.Errorf("unknown validator index %d", proposer.ValidatorIndex)
+			return gbp.BadRequest, fmt.Errorf("unknown validator index %s", proposer.ValidatorIndex)
 		}
 
 		// Next we need to get the expected fee recipient for the pubkey
