@@ -20,17 +20,19 @@ import (
 
 type ProxyRouter struct {
 	Addr               string
+	BeaconURL          *url.URL
 	GRPCAddr           string
 	GRPCBeaconURL      string
 	TLSCertFile        string
 	TLSKeyFile         string
-	gbp                *gbp.GuardedBeaconProxy
 	Logger             *zap.Logger
 	EL                 *executionlayer.ExecutionLayer
 	CL                 *consensuslayer.ConsensusLayer
 	AuthValidityWindow time.Duration
-	m                  *metrics.MetricsRegistry
-	gm                 *metrics.MetricsRegistry
+
+	gbp *gbp.GuardedBeaconProxy
+	m   *metrics.MetricsRegistry
+	gm  *metrics.MetricsRegistry
 }
 
 // Used to avoid collisions in context.WithValue()
@@ -232,19 +234,19 @@ func (pr *ProxyRouter) grpcAuthenticate(md metadata.MD) (gbp.AuthenticationStatu
 	return gbp.Allowed, ctx, nil
 }
 
-func (pr *ProxyRouter) Init(beaconNode *url.URL) error {
+func (pr *ProxyRouter) Start() error {
 
 	// Create the reverse proxy.
 	pr.gbp = &gbp.GuardedBeaconProxy{
-		BeaconURL:                  beaconNode,
 		Addr:                       pr.Addr,
+		BeaconURL:                  pr.BeaconURL,
+		GRPCAddr:                   pr.GRPCAddr,
+		GRPCBeaconURL:              pr.GRPCBeaconURL,
 		HTTPAuthenticator:          pr.authenticate,
 		GRPCAuthenticator:          pr.grpcAuthenticate,
 		PrepareBeaconProposerGuard: pr.prepareBeaconProposerGuard,
 		RegisterValidatorGuard:     pr.registerValidatorGuard,
 	}
-	pr.gbp.GRPCAddr = pr.GRPCAddr
-	pr.gbp.GRPCBeaconURL = pr.GRPCBeaconURL
 	pr.gbp.TLS.CertFile = pr.TLSCertFile
 	pr.gbp.TLS.KeyFile = pr.TLSKeyFile
 
@@ -253,6 +255,6 @@ func (pr *ProxyRouter) Init(beaconNode *url.URL) error {
 	return pr.gbp.ListenAndServe()
 }
 
-func (pr *ProxyRouter) Deinit(grace time.Duration) {
-	pr.gbp.Stop(grace)
+func (pr *ProxyRouter) Stop(ctx context.Context) {
+	pr.gbp.Stop(ctx)
 }

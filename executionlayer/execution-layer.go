@@ -37,10 +37,9 @@ type nodeInfo struct {
 // that fee recipients are 'correct'.
 type ExecutionLayer struct {
 	// Fields passed in by the constructor which are later referenced
-
-	logger            *zap.Logger
-	ecURL             *url.URL
-	rocketStorageAddr string
+	Logger            *zap.Logger
+	ECURL             *url.URL
+	RocketStorageAddr string
 
 	// The rocketpool-go client and its ethclient instance
 
@@ -72,7 +71,8 @@ type ExecutionLayer struct {
 	newHeaders chan *types.Header
 
 	// Somewhere to store chain data we care about
-	cache Cache
+	CachePath string
+	cache     Cache
 
 	// ethclient subscription needs to be manually closed on shutdown
 	ethclientShutdownCb func()
@@ -88,18 +88,6 @@ type ExecutionLayer struct {
 	m *metrics.MetricsRegistry
 }
 
-// NewExecutionLayer creates an ExecutionLayer with the provided ec URL, rocketStorage address, cache, and logger
-func NewExecutionLayer(ecURL *url.URL, rocketStorageAddr string, cache Cache, logger *zap.Logger) *ExecutionLayer {
-	out := &ExecutionLayer{}
-	out.logger = logger
-	out.rocketStorageAddr = rocketStorageAddr
-	out.ecURL = ecURL
-	out.cache = cache
-	out.m = metrics.NewMetricsRegistry("execution_layer")
-
-	return out
-}
-
 func (e *ExecutionLayer) setECShutdownCb(cb func()) {
 	if cb == nil {
 		e.ethclientShutdownCb = nil
@@ -108,7 +96,7 @@ func (e *ExecutionLayer) setECShutdownCb(cb func()) {
 
 	e.ethclientShutdownCb = func() {
 		cb()
-		e.logger.Debug("Unsubscribed from EL events")
+		e.Logger.Debug("Unsubscribed from EL events")
 	}
 }
 
@@ -124,15 +112,15 @@ func (e *ExecutionLayer) handleNodeEvent(event types.Log) {
 		// Get their fee distributor address
 		nodeInfo.feeDistributor, err = node.GetDistributorAddress(e.rp, addr, nil)
 		if err != nil {
-			e.logger.Warn("Couldn't get fee distributor address for newly registered node", zap.String("node", addr.String()))
+			e.Logger.Warn("Couldn't get fee distributor address for newly registered node", zap.String("node", addr.String()))
 		}
 		err = e.cache.addNodeInfo(addr, nodeInfo)
 		if err != nil {
-			e.logger.Error("Failed to add nodeInfo to cache", zap.Error(err))
+			e.Logger.Error("Failed to add nodeInfo to cache", zap.Error(err))
 		}
 
 		e.m.Counter("node_registration_added").Inc()
-		e.logger.Debug("New node registered", zap.String("addr", addr.String()))
+		e.Logger.Debug("New node registered", zap.String("addr", addr.String()))
 		return
 	}
 
@@ -149,40 +137,40 @@ func (e *ExecutionLayer) handleNodeEvent(event types.Log) {
 			_, ok := err.(*NotFoundError)
 
 			if !ok {
-				e.logger.Panic("Got an error from the cache while looking up a node",
+				e.Logger.Panic("Got an error from the cache while looking up a node",
 					zap.String("addr", nodeAddr.String()), zap.Error(err))
 			}
 
 			// Odd that we don't have this node already, but add it and carry on
-			e.logger.Warn("Unknown node updated its smoothing pool status", zap.String("addr", nodeAddr.String()))
+			e.Logger.Warn("Unknown node updated its smoothing pool status", zap.String("addr", nodeAddr.String()))
 			n = &nodeInfo{}
 			// Get their fee distributor address
 			n.feeDistributor, err = node.GetDistributorAddress(e.rp, nodeAddr, nil)
 			if err != nil {
-				e.logger.Warn("Couldn't compute fee distributor address for unknown node", zap.String("node", nodeAddr.String()))
+				e.Logger.Warn("Couldn't compute fee distributor address for unknown node", zap.String("node", nodeAddr.String()))
 			}
 
 		}
 
-		e.logger.Debug("Node SP status changed", zap.String("addr", nodeAddr.String()), zap.Bool("in_sp", status.Cmp(big.NewInt(1)) == 0))
+		e.Logger.Debug("Node SP status changed", zap.String("addr", nodeAddr.String()), zap.Bool("in_sp", status.Cmp(big.NewInt(1)) == 0))
 		n.inSmoothingPool = status.Cmp(big.NewInt(1)) == 0
 		err = e.cache.addNodeInfo(nodeAddr, n)
 		if err != nil {
-			e.logger.Error("Failed to add nodeInfo to cache", zap.Error(err))
+			e.Logger.Error("Failed to add nodeInfo to cache", zap.Error(err))
 		}
 
 		e.m.Counter("smoothing_pool_status_changed").Inc()
 		return
 	}
 
-	e.logger.Warn("Event with unknown topic received", zap.String("string", event.Topics[0].String()))
+	e.Logger.Warn("Event with unknown topic received", zap.String("string", event.Topics[0].String()))
 }
 
 func (e *ExecutionLayer) handleMinipoolEvent(event types.Log) {
 
 	// Make sure it's an event for the only topic we subscribed to, minipool launches
 	if !bytes.Equal(event.Topics[0].Bytes(), e.minipoolLaunchedTopic.Bytes()) {
-		e.logger.Warn("Event with unknown topic received", zap.String("string", event.Topics[0].String()))
+		e.Logger.Warn("Event with unknown topic received", zap.String("string", event.Topics[0].String()))
 		return
 	}
 
@@ -193,17 +181,17 @@ func (e *ExecutionLayer) handleMinipoolEvent(event types.Log) {
 	minipoolAddr := common.BytesToAddress(event.Topics[1].Bytes())
 	minipoolDetails, err := minipool.GetMinipoolDetails(e.rp, minipoolAddr, nil)
 	if err != nil {
-		e.logger.Warn("Error fetching minipool details for new minipools", zap.String("minipool", minipoolAddr.String()), zap.Error(err))
+		e.Logger.Warn("Error fetching minipool details for new minipools", zap.String("minipool", minipoolAddr.String()), zap.Error(err))
 		return
 	}
 
 	// Finally, update the minipool index
 	err = e.cache.addMinipoolNode(minipoolDetails.Pubkey, nodeAddr)
 	if err != nil {
-		e.logger.Warn("Error updating minipool cache", zap.Error(err))
+		e.Logger.Warn("Error updating minipool cache", zap.Error(err))
 	}
 	e.m.Counter("minipool_launch_received").Inc()
-	e.logger.Debug("Added new minipool", zap.String("pubkey", minipoolDetails.Pubkey.String()), zap.String("node", nodeAddr.String()))
+	e.Logger.Debug("Added new minipool", zap.String("pubkey", minipoolDetails.Pubkey.String()), zap.String("node", nodeAddr.String()))
 }
 
 func (e *ExecutionLayer) handleOdaoEvent(event types.Log) {
@@ -213,7 +201,7 @@ func (e *ExecutionLayer) handleOdaoEvent(event types.Log) {
 
 		err := e.cache.addOdaoNode(addr)
 		if err != nil {
-			e.logger.Warn("Error updating odao cache", zap.Error(err))
+			e.Logger.Warn("Error updating odao cache", zap.Error(err))
 		}
 		return
 	}
@@ -225,12 +213,12 @@ func (e *ExecutionLayer) handleOdaoEvent(event types.Log) {
 
 		err := e.cache.removeOdaoNode(addr)
 		if err != nil {
-			e.logger.Warn("Error updating odao cache", zap.Error(err))
+			e.Logger.Warn("Error updating odao cache", zap.Error(err))
 		}
 		return
 	}
 
-	e.logger.Warn("Event with unknown topic received", zap.String("string", event.Topics[0].String()))
+	e.Logger.Warn("Event with unknown topic received", zap.String("string", event.Topics[0].String()))
 }
 
 func (e *ExecutionLayer) handleEvent(event types.Log) {
@@ -254,7 +242,7 @@ func (e *ExecutionLayer) handleEvent(event types.Log) {
 	}
 
 	// Shouldn't ever happen, barring a bug in ethclient
-	e.logger.Warn("Received event for unknown contract", zap.String("address", event.Address.String()))
+	e.Logger.Warn("Received event for unknown contract", zap.String("address", event.Address.String()))
 out:
 	// We should always update highestBlock when we receive any event
 	e.cache.setHighestBlock(big.NewInt(int64(event.BlockNumber)))
@@ -278,9 +266,14 @@ func (e *ExecutionLayer) backfillEvents() error {
 	}
 	stop := header.Number
 
+	e.Logger.Debug("Checking if backfill neeeded",
+		zap.Uint64("cache height", start.Uint64()),
+		zap.Uint64("current height", stop.Uint64()),
+		zap.Int("cmp", start.Cmp(stop)))
+
 	// Make sure there is actually a gap before backfilling
 	if stop.Cmp(start) < 0 {
-		e.logger.Debug("No blocks to backfill events from")
+		e.Logger.Debug("No blocks to backfill events from")
 		return nil
 	}
 
@@ -319,7 +312,7 @@ func (e *ExecutionLayer) backfillEvents() error {
 	delta = delta.Add(delta, big.NewInt(1))
 	e.m.Counter("backfill_blocks").Add(float64(delta.Uint64()))
 
-	e.logger.Debug("Backfilled events", zap.Int("events", len(missedEvents)),
+	e.Logger.Debug("Backfilled events", zap.Int("events", len(missedEvents)),
 		zap.Uint64("blocks", delta.Uint64()),
 		zap.Int64("start", start.Int64()), zap.Int64("stop", stop.Int64()))
 	return nil
@@ -333,20 +326,20 @@ func (e *ExecutionLayer) handleSubscriptionError(err error, logEventSub **ethere
 	}
 
 	e.m.Counter("subscription_disconnected").Inc()
-	e.logger.Warn("Error received from eth client subscription", zap.Error(err))
+	e.Logger.Warn("Error received from eth client subscription", zap.Error(err))
 	// Attempt to reconnect `reconnectRetries` times with steadily increasing waits
 	for i := 0; i < reconnectRetries; i++ {
 
-		e.logger.Warn("Attempting to reconnect", zap.Int("attempt", i+1))
+		e.Logger.Warn("Attempting to reconnect", zap.Int("attempt", i+1))
 		e.m.Counter("reconnection_attempt").Inc()
 		s, err := e.client.SubscribeFilterLogs(context.Background(), e.query, e.events)
 		if err == nil {
-			e.logger.Warn("Reconnected", zap.Int("attempt", i+1))
+			e.Logger.Warn("Reconnected", zap.Int("attempt", i+1))
 
 			// Resubscribe to new headers - no retries
 			h, err := e.client.SubscribeNewHead(context.Background(), e.newHeaders)
 			if err != nil {
-				e.logger.Warn("Couldn't resubscribe to block headers after reconnecting")
+				e.Logger.Warn("Couldn't resubscribe to block headers after reconnecting")
 				break
 			}
 
@@ -359,7 +352,7 @@ func (e *ExecutionLayer) handleSubscriptionError(err error, logEventSub **ethere
 			err = e.backfillEvents()
 			if err != nil {
 				// Failed to backfill
-				e.logger.Panic("Couldn't backfill blocks after reconnecting to execution client")
+				e.Logger.Panic("Couldn't backfill blocks after reconnecting to execution client")
 			}
 
 			*logEventSub = &s
@@ -367,11 +360,11 @@ func (e *ExecutionLayer) handleSubscriptionError(err error, logEventSub **ethere
 			return
 		}
 
-		e.logger.Warn("Error trying to reconnect to execution client", zap.Error(err))
+		e.Logger.Warn("Error trying to reconnect to execution client", zap.Error(err))
 		select {
 		case <-e.ctx.Done():
 			// We're shutting down, so exit now
-			e.logger.Debug("Terminating while re-establishing the connection to the EL")
+			e.Logger.Debug("Terminating while re-establishing the connection to the EL")
 			return
 		case <-time.After(time.Duration(i) * (5 * time.Second)):
 			// Loop again
@@ -379,7 +372,7 @@ func (e *ExecutionLayer) handleSubscriptionError(err error, logEventSub **ethere
 	}
 
 	// Failed to reconnect after 10 tries
-	e.logger.Panic("Couldn't re-establish eth client connection")
+	e.Logger.Panic("Couldn't re-establish eth client connection")
 }
 
 // Registers to receive the events we care about
@@ -406,9 +399,6 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 		}},
 	}
 
-	// Set highestBlock to the cache's highestBlock, since it was either loaded or warmed up already
-	e.cache.setHighestBlock(opts.BlockNumber)
-
 	e.events = make(chan types.Log, 32)
 	sub, err := e.client.SubscribeFilterLogs(context.Background(), e.query, e.events)
 	if err != nil {
@@ -421,7 +411,7 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 		return err
 	}
 
-	e.logger.Debug("Subscribed to EL events")
+	e.Logger.Debug("Subscribed to EL events")
 
 	// After subscribing, we need to grab the current block and replay events between highestBlock and the current one.
 	// While we were building the cache from cold, we may have missed some events.
@@ -436,11 +426,12 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 		newHeadSub.Unsubscribe()
 	})
 
-	// Start listening for events in a separate routine
-	go func(logSubscription *ethereum.Subscription, newHeadSubscription *ethereum.Subscription) {
+	{
 		var noMoreEvents bool
 		var noMoreHeaders bool
-		e.wg.Add(1)
+
+		logSubscription := &sub
+		newHeadSubscription := &newHeadSub
 		for {
 
 			select {
@@ -466,7 +457,7 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 
 				// Just advance highest block
 				e.m.Counter("block_header_received").Inc()
-				e.logger.Debug("New block received",
+				e.Logger.Debug("New block received",
 					zap.Int64("new height", newHeader.Number.Int64()),
 					zap.Int64("old height", e.cache.getHighestBlock().Int64()))
 				e.cache.setHighestBlock(newHeader.Number)
@@ -478,13 +469,12 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 			// If we didn't process any events in the select and the channels are closed,
 			// no new events will come, so break the loop
 			if noMoreEvents && noMoreHeaders {
-				e.logger.Debug("Finished processing events", zap.Int64("height", e.cache.getHighestBlock().Int64()))
+				e.Logger.Debug("Finished processing events", zap.Int64("height", e.cache.getHighestBlock().Int64()))
 				break
 			}
 
 		}
-		e.wg.Done()
-	}(&sub, &newHeadSub)
+	}
 
 	return nil
 }
@@ -493,6 +483,17 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 func (e *ExecutionLayer) Init() error {
 	var err error
 
+	e.m = metrics.NewMetricsRegistry("execution_layer")
+
+	// Pick a cache
+	if e.CachePath == "" {
+		e.cache = &MapsCache{}
+	} else {
+		e.cache = &SqliteCache{
+			Path: e.CachePath,
+		}
+	}
+
 	e.ctx, e.shutdown = context.WithCancel(context.Background())
 
 	if err := e.cache.init(); err != nil {
@@ -500,11 +501,11 @@ func (e *ExecutionLayer) Init() error {
 	}
 	cacheBlock := e.cache.getHighestBlock()
 
-	e.client, err = ethclient.Dial(e.ecURL.String())
+	e.client, err = ethclient.Dial(e.ECURL.String())
 	if err != nil {
 		return err
 	}
-	e.rp, err = rocketpool.NewRocketPool(e.client, common.HexToAddress(e.rocketStorageAddr))
+	e.rp, err = rocketpool.NewRocketPool(e.client, common.HexToAddress(e.RocketStorageAddr))
 	if err != nil {
 		return err
 	}
@@ -520,7 +521,7 @@ func (e *ExecutionLayer) Init() error {
 	delta.Sub(header.Number, cacheBlock)
 	if delta.Int64() < 0 || delta.Int64() > maxCacheAgeBlocks {
 		// Reset caches from the future and the distance past
-		e.logger.Warn("Cache is stale or from the future, resetting...",
+		e.Logger.Warn("Cache is stale or from the future, resetting...",
 			zap.Int64("cache block", cacheBlock.Int64()),
 			zap.Int64("current block", header.Number.Int64()),
 			zap.Int64("delta", delta.Int64()))
@@ -563,19 +564,16 @@ func (e *ExecutionLayer) Init() error {
 
 	// If the cache is warm, skip the slow path
 	if cacheBlock.Cmp(big.NewInt(0)) != 0 {
-		// Update opts to indicate that we need to backfill from after
-		// the cache block instead
-		opts.BlockNumber = cacheBlock
-		return e.ecEventsConnect(opts)
+		return nil
 	}
-	e.logger.Warn("Warming up the cache")
+	e.Logger.Warn("Warming up the cache")
 
 	// Get all nodes at the given block
 	nodes, err := node.GetNodes(e.rp, opts)
 	if err != nil {
 		return err
 	}
-	e.logger.Debug("Found nodes to preload", zap.Int("count", len(nodes)), zap.Int64("block", opts.BlockNumber.Int64()))
+	e.Logger.Debug("Found nodes to preload", zap.Int("count", len(nodes)), zap.Int64("block", opts.BlockNumber.Int64()))
 
 	minipoolCount := 0
 	for _, n := range nodes {
@@ -630,30 +628,45 @@ func (e *ExecutionLayer) Init() error {
 			return err
 		}
 	}
-	e.logger.Debug("Found odao nodes to preload", zap.Int("count", len(odaoNodes)), zap.Int64("block", opts.BlockNumber.Int64()))
-	e.logger.Debug("Pre-loaded nodes and minipools",
+	e.Logger.Debug("Found odao nodes to preload", zap.Int("count", len(odaoNodes)), zap.Int64("block", opts.BlockNumber.Int64()))
+
+	// Set highestBlock to the cache's highestBlock, since it was just warmed up
+	e.cache.setHighestBlock(opts.BlockNumber)
+
+	e.Logger.Debug("Pre-loaded nodes and minipools",
 		zap.Int("nodes", len(nodes)),
 		zap.Int("minipools", minipoolCount),
 		zap.Int("odao nodes", len(odaoNodes)))
 
-	// Listen for updates
+	return nil
+}
+
+func (e *ExecutionLayer) Start() error {
+	// First, get the current block
+	header, err := e.client.HeaderByNumber(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+
+	// Create opts to query state at the latest block
+	opts := &bind.CallOpts{BlockNumber: header.Number}
+
 	return e.ecEventsConnect(opts)
 }
 
-// Deinit shuts down this ExecutionLayer
-func (e *ExecutionLayer) Deinit() {
-	e.logger.Debug("Stopping ethclient")
+// Stop shuts down this ExecutionLayer
+func (e *ExecutionLayer) Stop() {
+	e.Logger.Debug("Stopping ethclient")
 	e.shutdown()
 	if e.ethclientShutdownCb != nil {
 		e.ethclientShutdownCb()
 	}
 	close(e.events)
 	close(e.newHeaders)
-	e.wg.Wait()
-	e.logger.Debug("Serializing EL cache")
+	e.Logger.Debug("Stopping EL cache")
 	err := e.cache.deinit()
 	if err != nil {
-		e.logger.Error("error while stopping the cache", zap.Error(err))
+		e.Logger.Error("error while stopping the cache", zap.Error(err))
 	}
 }
 
@@ -675,7 +688,7 @@ func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey rptypes.ValidatorPubkey, q
 	if err != nil {
 		_, ok := err.(*NotFoundError)
 		if !ok {
-			e.logger.Panic("error querying cache for minipool", zap.String("pubkey", pubkey.String()), zap.Error(err))
+			e.Logger.Panic("error querying cache for minipool", zap.String("pubkey", pubkey.String()), zap.Error(err))
 		}
 
 		// Validator (hopefully) isn't a minipool
@@ -693,7 +706,7 @@ func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey rptypes.ValidatorPubkey, q
 	if err != nil {
 		_, ok := err.(*NotFoundError)
 		if !ok {
-			e.logger.Panic("error querying cache for node",
+			e.Logger.Panic("error querying cache for node",
 				zap.String("pubkey", pubkey.String()),
 				zap.String("node", nodeAddr.String()),
 				zap.Error(err))
@@ -701,7 +714,7 @@ func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey rptypes.ValidatorPubkey, q
 
 		// Validator was a minipool, but we don't have a node record for it. This is bad.
 		e.m.Counter("cache_inconsistent").Inc()
-		e.logger.Error("Validator was in the minipool index, but not the node index",
+		e.Logger.Error("Validator was in the minipool index, but not the node index",
 			zap.String("pubkey", pubkey.String()),
 			zap.String("node", nodeAddr.String()))
 		return nil, false
