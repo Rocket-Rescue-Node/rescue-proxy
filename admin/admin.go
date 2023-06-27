@@ -13,10 +13,6 @@ type AdminApi struct {
 	http.Server
 }
 
-func (a *AdminApi) Init(listenAddr string) error {
-	return nil
-}
-
 func (a *AdminApi) Start(listenAddr string) error {
 
 	a.Handler = mux.NewRouter()
