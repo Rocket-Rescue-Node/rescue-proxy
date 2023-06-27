@@ -229,8 +229,6 @@ func main() {
 		if err := adminServer.Start(config.AdminListenAddr); err != nil {
 			errs <- err
 		}
-
-		return
 	}()
 	defer func() {
 		// Shut down admin server
@@ -329,7 +327,6 @@ func main() {
 		if errored {
 			os.Exit(1)
 		}
-		return
 	}()
 
 	logger.Debug("Trapping SIGTERM and SIGINT")

@@ -5,7 +5,6 @@ import (
 	"context"
 	"math/big"
 	"net/url"
-	"sync"
 	"time"
 
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
@@ -76,9 +75,6 @@ type ExecutionLayer struct {
 
 	// ethclient subscription needs to be manually closed on shutdown
 	ethclientShutdownCb func()
-
-	// wg to be blocked on to let pending events be processed for graceful shutdown
-	wg sync.WaitGroup
 
 	// A context that can be canceled in order to gracefully stop the EL abstraction
 	ctx context.Context
