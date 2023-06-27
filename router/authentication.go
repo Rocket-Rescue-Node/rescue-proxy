@@ -7,12 +7,14 @@ import (
 
 	"github.com/Rocket-Pool-Rescue-Node/credentials"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
+	gbp "github.com/Rocket-Rescue-Node/guarded-beacon-proxy"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type authenticationError struct {
 	msg        string
+	gbpStatus  gbp.AuthenticationStatus
 	httpStatus int
 	grpcCode   codes.Code
 }
@@ -36,6 +38,7 @@ func malformed(err error) *authenticationError {
 		msg:        "malformed credentials: " + err.Error(),
 		httpStatus: http.StatusUnauthorized,
 		grpcCode:   codes.Unauthenticated,
+		gbpStatus:  gbp.Unauthorized,
 	}
 }
 
@@ -44,6 +47,7 @@ func invalid(err error) *authenticationError {
 		msg:        "invalid credentials: " + err.Error(),
 		httpStatus: http.StatusUnauthorized,
 		grpcCode:   codes.Unauthenticated,
+		gbpStatus:  gbp.Unauthorized,
 	}
 }
 
@@ -52,6 +56,7 @@ func expired() *authenticationError {
 		msg:        "expired credentials",
 		httpStatus: http.StatusUnauthorized,
 		grpcCode:   codes.PermissionDenied,
+		gbpStatus:  gbp.Forbidden,
 	}
 }
 

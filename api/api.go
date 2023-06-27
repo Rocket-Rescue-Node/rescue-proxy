@@ -21,17 +21,6 @@ type API struct {
 	m          *metrics.MetricsRegistry
 }
 
-func NewAPI(listenAddr string, el *executionlayer.ExecutionLayer, logger *zap.Logger) *API {
-	out := &API{
-		EL:         el,
-		Logger:     logger,
-		ListenAddr: listenAddr,
-		m:          metrics.NewMetricsRegistry("api"),
-	}
-
-	return out
-}
-
 func (a *API) GetRocketPoolNodes(ctx context.Context, request *pb.RocketPoolNodesRequest) (*pb.RocketPoolNodes, error) {
 	out := &pb.RocketPoolNodes{}
 	out.NodeIds = make([][]byte, 0, 1024)
@@ -69,6 +58,8 @@ func (a *API) GetOdaoNodes(ctx context.Context, request *pb.OdaoNodesRequest) (*
 }
 
 func (a *API) Init() error {
+
+	a.m = metrics.NewMetricsRegistry("api")
 
 	listener, err := net.Listen("tcp", a.ListenAddr)
 	if err != nil {

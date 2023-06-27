@@ -43,6 +43,9 @@ func Init(namespace string) (http.Handler, error) {
 		namespace,
 	}
 
+	// Initialize collection of node and validator count metrics
+	InitEpochMetrics()
+
 	return promhttp.Handler(), nil
 }
 

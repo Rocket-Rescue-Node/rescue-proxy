@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"flag"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,7 +17,6 @@ import (
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/api"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/router"
 	"go.uber.org/zap"
 )
@@ -205,72 +203,15 @@ func waitForSignals(signals ...os.Signal) {
 }
 
 func main() {
+	var ctx *context.Context
 
 	// Initialize config
 	config := initFlags()
 	logger.Info("Starting up the rescue node proxy...")
-
-	// Initialize metrics globals
-	metricsHTTPHandler, err := metrics.Init("rescue_proxy")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to initialize admin api\n%v\n", err)
-		os.Exit(1)
-		return
-	}
-
-	// Initialize collection of node and validator count metrics
-	metrics.InitEpochMetrics()
-
-	// Create the admin-only http server
-	adminServer := admin.AdminApi{}
-	adminServer.Init(config.AdminListenAddr)
-
-	// Add admin handlers to the admin only http server and start it
-	adminServer.Handle("/metrics", metricsHTTPHandler)
-	err = adminServer.Start()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to start admin api\n%v\n", err)
-		os.Exit(1)
-		return
-	}
-
-	// Listen on the provided address
-	listener, err := net.Listen("tcp", config.ListenAddr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to listen on provided address %s\n%v\n", config.ListenAddr, err)
-		os.Exit(1)
-		return
-	}
-
-	// Pick a cache
-	var cache executionlayer.Cache
-	if config.CachePath == "" {
-		cache = &executionlayer.MapsCache{}
-	} else {
-		cache = &executionlayer.SqliteCache{
-			Path: config.CachePath,
-		}
-	}
-
-	// Connect to and initialize the execution layer
-	el := executionlayer.NewExecutionLayer(config.ExecutionURL, config.RocketStorageAddr, cache, logger)
-
-	err = el.Init()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to init Execution Layer client. \n%v\n", err)
-		os.Exit(1)
-		return
-	}
-
-	// Connect to and initialize the consensus layer
-	cl := consensuslayer.NewConsensusLayer(config.BeaconURL, logger)
-
-	err = cl.Init()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to init Consensus Layer client. \n%v\n", err)
-		os.Exit(1)
-		return
-	}
+	defer func() {
+		logger.Debug("Flushing logs")
+		_ = logger.Sync()
+	}()
 
 	// Create a credential manager
 	cm := credentials.NewCredentialManager(sha256.New, []byte(config.CredentialSecret))
@@ -278,82 +219,131 @@ func main() {
 	// Initialize the authentication library
 	router.InitAuth(cm, config.AuthValidityWindow)
 
-	// Spin up the server on a different goroutine, since it blocks.
-	server := http.Server{}
+	// Create a channel to report errors
+	errs := make(chan error)
+	defer close(errs)
+
+	// Create the admin-only http server
+	adminServer := &admin.AdminApi{}
 	go func() {
-		router := &router.ProxyRouter{
-			EL:                 el,
-			CL:                 cl,
-			Logger:             logger,
-			AuthValidityWindow: config.AuthValidityWindow,
-		}
-		router.Init(config.BeaconURL)
-		logger.Info("Starting http server", zap.String("url", config.ListenAddr))
-		if err := server.Serve(listener); err != nil {
-			logger.Info("Server stopped", zap.Error(err))
+		if err := adminServer.Start(config.AdminListenAddr); err != nil {
+			errs <- err
 		}
 	}()
+	defer func() {
+		// Shut down admin server
+		adminServer.Close()
+		logger.Debug("Stopped internal API")
+	}()
 
-	api := api.NewAPI(config.APIListenAddr, el, logger)
-	if err := api.Init(); err != nil {
-		logger.Error("Unable to start grpc server", zap.Error(err))
+	// Connect to and initialize the execution layer
+	el := &executionlayer.ExecutionLayer{
+		ECURL:             config.ExecutionURL,
+		RocketStorageAddr: config.RocketStorageAddr,
+		Logger:            logger,
+		CachePath:         config.CachePath,
+	}
+	err := el.Init()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to init Execution Layer client.\n%v\n", err)
 		os.Exit(1)
 		return
 	}
-
-	if config.GRPCListenAddr != "" {
-		grpcRouter := &router.GRPCRouter{
-			EL:                 el,
-			CL:                 cl,
-			Logger:             logger,
-			AuthValidityWindow: config.AuthValidityWindow,
+	go func() {
+		if err := el.Start(); err != nil {
+			errs <- err
 		}
+	}()
+	defer func() {
+		// Disconnect from the execution client
+		el.Stop()
+		logger.Debug("Stopped executionlayer")
+	}()
 
-		grpcRouter.TLS.CertFile = config.GRPCTLSCertFile
-		grpcRouter.TLS.KeyFile = config.GRPCTLSKeyFile
-
-		err := grpcRouter.Init(config.GRPCListenAddr, config.GRPCBeaconAddr)
-		if err != nil {
-			logger.Error("Unable to start grpc proxy", zap.Error(err))
-			os.Exit(1)
-			return
-		}
-		defer grpcRouter.Deinit()
+	// Connect to and initialize the consensus layer
+	cl := consensuslayer.NewConsensusLayer(config.BeaconURL, logger)
+	// Consensus Layer is non-blocking/synchronous only
+	err = cl.Init()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to init Consensus Layer client.\n%v\n", err)
+		os.Exit(1)
+		return
 	}
+	defer func() {
+		cl.Deinit()
+		logger.Debug("Stopped consensuslayer")
+	}()
+
+	// Spin up the server on a different goroutine, since it blocks.
+	r := &router.ProxyRouter{
+		Addr:               config.ListenAddr,
+		BeaconURL:          config.BeaconURL,
+		GRPCAddr:           config.GRPCListenAddr,
+		GRPCBeaconURL:      config.GRPCBeaconAddr,
+		TLSCertFile:        config.GRPCTLSCertFile,
+		TLSKeyFile:         config.GRPCTLSKeyFile,
+		Logger:             logger,
+		EL:                 el,
+		CL:                 cl,
+		AuthValidityWindow: config.AuthValidityWindow,
+	}
+	go func() {
+		logger.Info("Starting http server", zap.String("url", config.ListenAddr))
+		if err := r.Start(); err != nil {
+			errs <- err
+		}
+	}()
+	defer func() {
+		r.Stop(*ctx)
+		logger.Debug("Stopped consensuslayer")
+	}()
+
+	api := &api.API{
+		EL:         el,
+		Logger:     logger,
+		ListenAddr: config.APIListenAddr,
+	}
+	go func() {
+		if err := api.Init(); err != nil {
+			errs <- err
+		}
+	}()
+	defer func() {
+		api.Deinit()
+		logger.Debug("Stopped API")
+	}()
+
+	go func() {
+		var errored bool
+		for err := range errs {
+			if err == http.ErrServerClosed {
+				// This error is expected
+				continue
+			}
+			logger.Error("Error from subtask, shutting down", zap.Error(err))
+			errored = true
+			close(errs)
+		}
+		if errored {
+			os.Exit(1)
+		}
+	}()
 
 	logger.Debug("Trapping SIGTERM and SIGINT")
 	waitForSignals(os.Interrupt)
 
 	// Shut down gracefully
 	logger.Info("Received signal, shutting down")
-	// If gracefully shutting down the http server takes too long,
-	// forge ahead without finishing.
-	stopCtx, stopNow := context.WithTimeout(context.Background(), 3*time.Second)
-	// We have no reason to call cancel, but govet doesn't want the context to
-	// leak, so we must.
-	// Defer it so it is called when we exit.
-	defer stopNow()
-	err = server.Shutdown(stopCtx)
-	if err != nil {
-		// Either an error occurred while gracefully stopping the server, or the deadline elapsed
-		logger.Info("Error terminating http server", zap.Error(err))
-		// Forcefully stop the server now
-		server.Close()
-	}
 
-	api.Deinit()
-	logger.Debug("Stopped API")
-
-	// Disconnect from the execution client
-	el.Deinit()
-	logger.Debug("Stopped executionlayer")
-	cl.Deinit()
-	logger.Debug("Stopped consensuslayer")
-
-	// Shut down admin server
-	adminServer.Close()
-	logger.Debug("Stopped internal API")
-
-	logger.Debug("Flushing logs")
-	_ = logger.Sync()
+	// Create a deadline context for shutdowns that use one
+	_c, release := context.WithTimeout(context.Background(), time.Second*15)
+	go func() {
+		defer release()
+		<-_c.Done()
+		if _c.Err() != nil {
+			logger.Error("Graceful shutdown timeout exceeded, exiting now")
+			os.Exit(1)
+		}
+	}()
+	ctx = &_c
 }
