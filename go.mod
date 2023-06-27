@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/Rocket-Pool-Rescue-Node/credentials v0.0.0-20221210220221-3e4b9363005f
-	github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.0.2
+	github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.0
 	github.com/allegro/bigcache/v3 v3.1.0
 	github.com/attestantio/go-eth2-client v0.14.5
 	github.com/ethereum/go-ethereum v1.12.0

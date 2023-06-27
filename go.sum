@@ -36,8 +36,8 @@ github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym
 github.com/DataDog/zstd v1.5.2 h1:vUG4lAyuPCXO0TLbXvPv7EB7cNK1QV/luu55UHLrrn8=
 github.com/Rocket-Pool-Rescue-Node/credentials v0.0.0-20221210220221-3e4b9363005f h1:3SCMbGYczIYnbhf/EbPvoWPlyHTVOLJuxKrGPxg43fo=
 github.com/Rocket-Pool-Rescue-Node/credentials v0.0.0-20221210220221-3e4b9363005f/go.mod h1:a8WDDCTOY1g5tQG9myB5UMEg+4tCLAtVm++Qm5Ki6iA=
-github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.0.2 h1:ko/9ITM13T/qej3F7NRL1Rx99eVAGCY1H29hoWt69AA=
-github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.0.2/go.mod h1:p4CMEZjb+V4hI6vaAoOTplAi6pZLHCtnw163NdMztgo=
+github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.0 h1:GeVdL1FdnpO4RuyY+QqfiRmfwkeSzoTe8IuLuLTS0u8=
+github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.0/go.mod h1:p4CMEZjb+V4hI6vaAoOTplAi6pZLHCtnw163NdMztgo=
 github.com/VictoriaMetrics/fastcache v1.12.0 h1:vnVi/y9yKDcD9akmc4NqAoqgQhJrOwUF+j9LTgn4QDE=
 github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=
 github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=
