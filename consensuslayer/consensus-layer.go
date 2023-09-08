@@ -77,7 +77,9 @@ func (c *ConsensusLayer) Init() error {
 	client, err := http.New(ctx,
 		http.WithAddress(c.bnURL.String()),
 		// It's very chatty if we don't quiet it down
-		http.WithLogLevel(zerolog.WarnLevel))
+		http.WithLogLevel(zerolog.WarnLevel),
+		// Set a sensible timeout. This is used as a maximum. Requests can set their own via ctx.
+		http.WithTimeout(1*time.Minute))
 	if err != nil {
 		return err
 	}
@@ -168,6 +170,25 @@ func (c *ConsensusLayer) GetValidatorPubkey(validatorIndices []string) (map[stri
 		// Add it to the cache. Ignore errors, we can always look the key up later
 		_ = c.pubkeyCache.Set(strIndex, pubkey[:])
 		c.m.Counter("cache_add").Inc()
+	}
+
+	return out, nil
+}
+
+// GetValidators gets the list of all validators for the finalized state
+// It does no caching- the response is large, so caching should be done downstream, for the data the caller cares about.
+func (c *ConsensusLayer) GetValidators() ([]*apiv1.Validator, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+
+	vmap, err := c.client.Validators(ctx, "finalized", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]*apiv1.Validator, 0, len(vmap))
+	for _, v := range vmap {
+		out = append(out, v)
 	}
 
 	return out, nil
