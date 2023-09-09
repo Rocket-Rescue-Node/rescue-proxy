@@ -19,6 +19,7 @@ import (
 func main() {
 	addr := flag.String("addr", "0.0.0.0:8080", "the address where the api is responding to grpc requests")
 	odao := flag.Bool("odao", false, "pass this to get the list of odao nodes")
+	solo := flag.Bool("solo", false, "pass this to get the list of solo validator withdrawal addresses")
 	useTLS := flag.Bool("tls", false, "use TLS to connect to the api")
 
 	flag.Parse()
@@ -41,7 +42,7 @@ func main() {
 
 	c := pb.NewApiClient(conn)
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var nodeIds [][]byte
@@ -55,6 +56,15 @@ func main() {
 		}
 
 		nodeIds = r.GetNodeIds()
+	} else if *solo {
+		r, err := c.GetSoloValidators(ctx, &pb.SoloValidatorsRequest{})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+			return
+		}
+
+		nodeIds = r.GetWithdrawalAddresses()
 	} else {
 		r, err := c.GetRocketPoolNodes(ctx, &pb.RocketPoolNodesRequest{})
 		if err != nil {

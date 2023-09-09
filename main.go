@@ -295,11 +295,12 @@ func main() {
 	}()
 	defer func() {
 		r.Stop(*ctx)
-		logger.Debug("Stopped consensuslayer")
+		logger.Debug("Stopped router")
 	}()
 
 	api := &api.API{
 		EL:         el,
+		CL:         cl,
 		Logger:     logger,
 		ListenAddr: config.APIListenAddr,
 	}

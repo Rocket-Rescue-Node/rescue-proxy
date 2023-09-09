@@ -8,6 +8,7 @@ service Api {
 
 	rpc GetRocketPoolNodes (RocketPoolNodesRequest) returns (RocketPoolNodes) {}
 	rpc GetOdaoNodes (OdaoNodesRequest) returns (OdaoNodes) {}
+	rpc GetSoloValidators (SoloValidatorsRequest) returns (SoloValidators) {}
 }
 
 message RocketPoolNodesRequest {
@@ -24,4 +25,12 @@ message OdaoNodesRequest {
 
 message OdaoNodes {
 	repeated bytes node_ids = 1;
+}
+
+message SoloValidatorsRequest {
+
+}
+
+message SoloValidators {
+	repeated bytes withdrawal_addresses = 1;
 }
