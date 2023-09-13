@@ -8,8 +8,13 @@ import (
 	rptypes "github.com/rocket-pool/rocketpool-go/types"
 )
 
+type maps struct {
+	solo sync.Map
+	rp   sync.Map
+}
+
 var currentIdx uint64
-var epochs [4]sync.Map
+var epochs [4]maps
 
 var registry *MetricsRegistry
 
@@ -29,10 +34,21 @@ func OnHead(epoch uint64) {
 	registry.Counter("head_advanced").Inc()
 
 	// Clear the new index
-	epochs[newCurrentIdx] = sync.Map{}
+	epochs[newCurrentIdx] = maps{}
 	// atomic provides us with a memory fence in go 1.19+, which means the above assignments
 	// are always observable on other goroutines when the newCurrentIdx is loaded
 	atomic.StoreUint64(&currentIdx, newCurrentIdx)
+}
+
+func ObserveSoloValidator(node common.Address, pubkey rptypes.ValidatorPubkey) {
+	registry.Counter("observed_solo_validator").Inc()
+	var nodeMap *sync.Map = &sync.Map{}
+
+	epoch := &epochs[atomic.LoadUint64(&currentIdx)]
+
+	iface, _ := epoch.solo.LoadOrStore(node, nodeMap)
+	nodeMap = iface.(*sync.Map)
+	_, _ = nodeMap.LoadOrStore(pubkey, struct{}{})
 }
 
 func ObserveValidator(node common.Address, pubkey rptypes.ValidatorPubkey) {
@@ -41,7 +57,7 @@ func ObserveValidator(node common.Address, pubkey rptypes.ValidatorPubkey) {
 
 	epoch := &epochs[atomic.LoadUint64(&currentIdx)]
 
-	iface, _ := epoch.LoadOrStore(node, nodeMap)
+	iface, _ := epoch.rp.LoadOrStore(node, nodeMap)
 	nodeMap = iface.(*sync.Map)
 	_, _ = nodeMap.LoadOrStore(pubkey, struct{}{})
 }
@@ -58,7 +74,7 @@ func previousEpochIdx() uint64 {
 func PreviousEpochNodes() (out float64) {
 
 	epoch := &epochs[previousEpochIdx()]
-	epoch.Range(func(key, value any) bool {
+	epoch.rp.Range(func(key, value any) bool {
 		out += 1
 		return true
 	})
@@ -69,7 +85,33 @@ func PreviousEpochNodes() (out float64) {
 func PreviousEpochValidators() (out float64) {
 
 	epoch := &epochs[previousEpochIdx()]
-	epoch.Range(func(key, value any) bool {
+	epoch.rp.Range(func(key, value any) bool {
+		m := value.(*sync.Map)
+		m.Range(func(key2, value2 any) bool {
+			out += 1
+			return true
+		})
+		return true
+	})
+
+	return
+}
+
+func PreviousEpochSoloNodes() (out float64) {
+
+	epoch := &epochs[previousEpochIdx()]
+	epoch.solo.Range(func(key, value any) bool {
+		out += 1
+		return true
+	})
+
+	return
+}
+
+func PreviousEpochSoloValidators() (out float64) {
+
+	epoch := &epochs[previousEpochIdx()]
+	epoch.solo.Range(func(key, value any) bool {
 		m := value.(*sync.Map)
 		m.Range(func(key2, value2 any) bool {
 			out += 1
@@ -95,6 +137,8 @@ func InitEpochMetrics() {
 	registry = NewMetricsRegistry("epoch")
 	registry.GaugeFunc("validators_seen", PreviousEpochValidators)
 	registry.GaugeFunc("nodes_seen", PreviousEpochNodes)
+	registry.GaugeFunc("validators_seen_solo", PreviousEpochSoloValidators)
+	registry.GaugeFunc("nodes_seen_solo", PreviousEpochSoloNodes)
 	registry.GaugeFunc("current_idx", CurrentIdx)
 	registry.GaugeFunc("previous_idx", PreviousIdx)
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Rocket-Pool-Rescue-Node/credentials"
+	"github.com/Rocket-Pool-Rescue-Node/credentials/pb"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
 )
 
@@ -31,7 +32,7 @@ func TestValidCredential(t *testing.T) {
 	defer teardown()
 
 	// Create a valid credential
-	cred, err := cm.Create(time.Now(), nodeId)
+	cred, err := cm.Create(time.Now(), nodeId, pb.OperatorType_OT_ROCKETPOOL)
 	if err != nil {
 		t.Error(err)
 	}
@@ -55,7 +56,7 @@ func TestExpiredCredential(t *testing.T) {
 	defer teardown()
 
 	// Create a valid credential
-	cred, err := cm.Create(time.Now().Add(-time.Hour), nodeId)
+	cred, err := cm.Create(time.Now().Add(-time.Hour), nodeId, pb.OperatorType_OT_ROCKETPOOL)
 	if err != nil {
 		t.Error(err)
 	}
@@ -78,7 +79,7 @@ func TestEmptyUsername(t *testing.T) {
 	defer teardown()
 
 	// Create a valid credential
-	cred, err := cm.Create(time.Now().Add(-time.Hour), nodeId)
+	cred, err := cm.Create(time.Now().Add(-time.Hour), nodeId, pb.OperatorType_OT_ROCKETPOOL)
 	if err != nil {
 		t.Error(err)
 	}
@@ -101,7 +102,7 @@ func TestEmptyPassword(t *testing.T) {
 	defer teardown()
 
 	// Create a valid credential
-	cred, err := cm.Create(time.Now().Add(-time.Hour), nodeId)
+	cred, err := cm.Create(time.Now().Add(-time.Hour), nodeId, pb.OperatorType_OT_ROCKETPOOL)
 	if err != nil {
 		t.Error(err)
 	}
@@ -121,7 +122,7 @@ func TestFutureCredential(t *testing.T) {
 	defer teardown()
 
 	// Create a valid credential
-	cred, err := cm.Create(time.Now().Add(time.Hour), nodeId)
+	cred, err := cm.Create(time.Now().Add(time.Hour), nodeId, pb.OperatorType_OT_ROCKETPOOL)
 	if err != nil {
 		t.Error(err)
 	}

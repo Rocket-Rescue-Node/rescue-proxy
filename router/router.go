@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Rocket-Pool-Rescue-Node/credentials/pb"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
@@ -39,6 +40,38 @@ type ProxyRouter struct {
 // see: https://pkg.go.dev/context#WithValue
 type prContextKey string
 
+func (pr *ProxyRouter) pbpGuardSolo(withdrawalAddress common.Address, proposers gbp.PrepareBeaconProposerRequest) (gbp.AuthenticationStatus, error) {
+
+	indices := make([]string, 0, len(proposers))
+
+	for _, proposer := range proposers {
+
+		// Solo validators building local blocks must use their withdrawal address as their fee recipient
+		if !strings.EqualFold(withdrawalAddress.String(), proposer.FeeRecipient) {
+			pr.m.Counter("prepare_beacon_incorrect_fee_recipient_solo").Inc()
+			return gbp.Conflict, fmt.Errorf("Solo validator fee recipient didn't match 0x01 credential for validator %s: expected %s",
+				proposer.ValidatorIndex, withdrawalAddress.String())
+		}
+
+		// Collect indices for metrics
+		indices = append(indices, proposer.ValidatorIndex)
+		pr.m.Counter("prepare_beacon_correct_fee_recipient_solo").Inc()
+	}
+
+	pubkeys, err := pr.CL.GetValidatorPubkey(indices)
+	if err != nil {
+		// Return here and skip metrics for now.
+		pr.Logger.Warn("Failed to query solo validator pubkeys for metrics", zap.Error(err))
+		return gbp.Allowed, nil
+	}
+
+	for _, pubkey := range pubkeys {
+		metrics.ObserveSoloValidator(withdrawalAddress, pubkey)
+	}
+
+	return gbp.Allowed, nil
+}
+
 func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconProposerRequest, ctx context.Context) (gbp.AuthenticationStatus, error) {
 	pr.m.Counter("prepare_beacon_proposer").Inc()
 
@@ -63,7 +96,18 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 		pr.Logger.Warn("Unable to retrieve node address cached on request context")
 		return gbp.InternalError, nil
 	}
+
+	// Grab the operator type
+	operatorType, ok := ctx.Value(prContextKey("operator_type")).(pb.OperatorType)
+	if !ok {
+		pr.Logger.Warn("Unable to retrieve operator_type cached on request context")
+		return gbp.InternalError, nil
+	}
+
 	authedNodeAddr := common.BytesToAddress(authedNode)
+	if operatorType == pb.OperatorType_OT_SOLO {
+		return pr.pbpGuardSolo(authedNodeAddr, proposers)
+	}
 
 	// Iterate the results and check the fee recipients against our expected values
 	// Note: we iterate the map from the HTTP request to ensure every key is present in the
@@ -114,6 +158,27 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 	return gbp.Allowed, nil
 }
 
+func (pr *ProxyRouter) rvGuardSolo(withdrawalAddress common.Address, validators gbp.RegisterValidatorRequest) (gbp.AuthenticationStatus, error) {
+
+	// We don't care to guard register_validator for solo credentials, since it requires a bls signature, and unlike RP,
+	// there are no constraints on valid fee recipients.
+	//
+	// Collect metrics only.
+
+	for _, validator := range validators {
+		pubkeyStr := strings.TrimPrefix(validator.Message.Pubkey, "0x")
+
+		pubkey, err := rptypes.HexToValidatorPubkey(pubkeyStr)
+		if err != nil {
+			pr.Logger.Warn("Malformed pubkey in register_validator_request", zap.Error(err), zap.String("pubkey", pubkeyStr))
+			continue
+		}
+		metrics.ObserveSoloValidator(withdrawalAddress, pubkey)
+	}
+
+	return gbp.Allowed, nil
+}
+
 func (pr *ProxyRouter) registerValidatorGuard(validators gbp.RegisterValidatorRequest, ctx context.Context) (gbp.AuthenticationStatus, error) {
 	pr.m.Counter("register_validator").Inc()
 
@@ -123,7 +188,19 @@ func (pr *ProxyRouter) registerValidatorGuard(validators gbp.RegisterValidatorRe
 		pr.Logger.Warn("Unable to retrieve node address cached on request context")
 		return gbp.InternalError, nil
 	}
+
+	// Grab the operator type
+	operatorType, ok := ctx.Value(prContextKey("operator_type")).(pb.OperatorType)
+	if !ok {
+		pr.Logger.Warn("Unable to retrieve operator_type cached on request context")
+		return gbp.InternalError, nil
+	}
+
 	authedNodeAddr := common.BytesToAddress(authedNode)
+
+	if operatorType == pb.OperatorType_OT_SOLO {
+		return pr.rvGuardSolo(authedNodeAddr, validators)
+	}
 
 	for _, validator := range validators {
 		pubkeyStr := strings.TrimPrefix(validator.Message.Pubkey, "0x")
@@ -199,10 +276,16 @@ func (pr *ProxyRouter) authenticate(r *http.Request) (gbp.AuthenticationStatus, 
 	}
 
 	// If auth succeeds:
-	pr.m.Counter("auth_ok").Inc()
+	if ac.Credential.OperatorType == pb.OperatorType_OT_ROCKETPOOL {
+		pr.m.Counter("auth_ok").Inc()
+	} else {
+		pr.m.Counter("auth_ok_solo").Inc()
+	}
 	pr.Logger.Debug("Proxying Guarded URI", zap.String("uri", r.RequestURI))
 	// Add the node address to the request context
 	ctx := context.WithValue(r.Context(), prContextKey("node"), ac.Credential.NodeId)
+	// Add the operator type to the request context
+	ctx = context.WithValue(ctx, prContextKey("operator_type"), ac.Credential.OperatorType)
 	return gbp.Allowed, ctx, nil
 }
 
@@ -228,9 +311,14 @@ func (pr *ProxyRouter) grpcAuthenticate(md metadata.MD) (gbp.AuthenticationStatu
 		return err.gbpStatus, nil, err
 	}
 
-	pr.gm.Counter("auth_ok").Inc()
+	if ac.Credential.OperatorType == pb.OperatorType_OT_ROCKETPOOL {
+		pr.gm.Counter("auth_ok").Inc()
+	} else {
+		pr.gm.Counter("auth_ok_solo").Inc()
+	}
 
 	ctx := context.WithValue(context.Background(), prContextKey("node"), ac.Credential.NodeId)
+	ctx = context.WithValue(ctx, prContextKey("operator_type"), ac.Credential.OperatorType)
 	return gbp.Allowed, ctx, nil
 }
 
