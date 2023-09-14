@@ -24,19 +24,20 @@ import (
 var logger *zap.Logger
 
 type config struct {
-	BeaconURL          *url.URL
-	ExecutionURL       *url.URL
-	ListenAddr         string
-	APIListenAddr      string
-	AdminListenAddr    string
-	GRPCListenAddr     string
-	GRPCBeaconAddr     string
-	GRPCTLSCertFile    string
-	GRPCTLSKeyFile     string
-	RocketStorageAddr  string
-	CredentialSecret   string
-	AuthValidityWindow time.Duration
-	CachePath          string
+	BeaconURL            *url.URL
+	ExecutionURL         *url.URL
+	ListenAddr           string
+	APIListenAddr        string
+	AdminListenAddr      string
+	GRPCListenAddr       string
+	GRPCBeaconAddr       string
+	GRPCTLSCertFile      string
+	GRPCTLSKeyFile       string
+	RocketStorageAddr    string
+	CredentialSecret     string
+	AuthValidityWindow   time.Duration
+	CachePath            string
+	EnableSoloValidators bool
 }
 
 func initLogger(debug bool) error {
@@ -68,6 +69,7 @@ func initFlags() (config config) {
 	credentialSecretFlag := flag.String("hmac-secret", "test-secret", "The secret to use for HMAC")
 	authValidityWindowFlag := flag.String("auth-valid-for", "360h", "The duration after which a credential should be considered invalid, eg, 360h for 15 days")
 	cachePathFlag := flag.String("cache-path", "", "A path to cache EL data in. Leave blank to disable caching.")
+	enableSoloValidatorsFlag := flag.Bool("enable-solo-validators", true, "Whether or not to allow solo validators access.")
 
 	flag.Parse()
 
@@ -175,6 +177,7 @@ func initFlags() (config config) {
 	config.GRPCBeaconAddr = *grpcBeaconAddrFlag
 	config.ListenAddr = *addrURLFlag
 	config.RocketStorageAddr = *rocketStorageAddrFlag
+	config.EnableSoloValidators = *enableSoloValidatorsFlag
 	return
 }
 
@@ -276,16 +279,17 @@ func main() {
 
 	// Spin up the server on a different goroutine, since it blocks.
 	r := &router.ProxyRouter{
-		Addr:               config.ListenAddr,
-		BeaconURL:          config.BeaconURL,
-		GRPCAddr:           config.GRPCListenAddr,
-		GRPCBeaconURL:      config.GRPCBeaconAddr,
-		TLSCertFile:        config.GRPCTLSCertFile,
-		TLSKeyFile:         config.GRPCTLSKeyFile,
-		Logger:             logger,
-		EL:                 el,
-		CL:                 cl,
-		AuthValidityWindow: config.AuthValidityWindow,
+		Addr:                 config.ListenAddr,
+		BeaconURL:            config.BeaconURL,
+		GRPCAddr:             config.GRPCListenAddr,
+		GRPCBeaconURL:        config.GRPCBeaconAddr,
+		TLSCertFile:          config.GRPCTLSCertFile,
+		TLSKeyFile:           config.GRPCTLSKeyFile,
+		Logger:               logger,
+		EL:                   el,
+		CL:                   cl,
+		AuthValidityWindow:   config.AuthValidityWindow,
+		EnableSoloValidators: config.EnableSoloValidators,
 	}
 	go func() {
 		logger.Info("Starting http server", zap.String("url", config.ListenAddr))

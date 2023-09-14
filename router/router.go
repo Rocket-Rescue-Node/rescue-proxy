@@ -20,16 +20,17 @@ import (
 )
 
 type ProxyRouter struct {
-	Addr               string
-	BeaconURL          *url.URL
-	GRPCAddr           string
-	GRPCBeaconURL      string
-	TLSCertFile        string
-	TLSKeyFile         string
-	Logger             *zap.Logger
-	EL                 *executionlayer.ExecutionLayer
-	CL                 *consensuslayer.ConsensusLayer
-	AuthValidityWindow time.Duration
+	Addr                 string
+	BeaconURL            *url.URL
+	GRPCAddr             string
+	GRPCBeaconURL        string
+	TLSCertFile          string
+	TLSKeyFile           string
+	Logger               *zap.Logger
+	EL                   *executionlayer.ExecutionLayer
+	CL                   *consensuslayer.ConsensusLayer
+	AuthValidityWindow   time.Duration
+	EnableSoloValidators bool
 
 	gbp *gbp.GuardedBeaconProxy
 	m   *metrics.MetricsRegistry
@@ -49,7 +50,7 @@ func (pr *ProxyRouter) pbpGuardSolo(withdrawalAddress common.Address, proposers 
 		// Solo validators building local blocks must use their withdrawal address as their fee recipient
 		if !strings.EqualFold(withdrawalAddress.String(), proposer.FeeRecipient) {
 			pr.m.Counter("prepare_beacon_incorrect_fee_recipient_solo").Inc()
-			return gbp.Conflict, fmt.Errorf("Solo validator fee recipient didn't match 0x01 credential for validator %s: expected %s",
+			return gbp.Conflict, fmt.Errorf("solo validator fee recipient didn't match 0x01 credential for validator %s: expected %s",
 				proposer.ValidatorIndex, withdrawalAddress.String())
 		}
 
@@ -279,6 +280,10 @@ func (pr *ProxyRouter) authenticate(r *http.Request) (gbp.AuthenticationStatus, 
 	if ac.Credential.OperatorType == pb.OperatorType_OT_ROCKETPOOL {
 		pr.m.Counter("auth_ok").Inc()
 	} else {
+		// If we're dropping solo traffic, 429 it here
+		if !pr.EnableSoloValidators {
+			return gbp.TooManyRequests, nil, fmt.Errorf("solo validator support was manually disabled, but may be restored later")
+		}
 		pr.m.Counter("auth_ok_solo").Inc()
 	}
 	pr.Logger.Debug("Proxying Guarded URI", zap.String("uri", r.RequestURI))
@@ -312,6 +317,10 @@ func (pr *ProxyRouter) grpcAuthenticate(md metadata.MD) (gbp.AuthenticationStatu
 	}
 
 	if ac.Credential.OperatorType == pb.OperatorType_OT_ROCKETPOOL {
+		// If we're dropping solo traffic, 429 it here
+		if !pr.EnableSoloValidators {
+			return gbp.TooManyRequests, nil, fmt.Errorf("solo validator support was manually disabled, but may be restored later")
+		}
 		pr.gm.Counter("auth_ok").Inc()
 	} else {
 		pr.gm.Counter("auth_ok_solo").Inc()
