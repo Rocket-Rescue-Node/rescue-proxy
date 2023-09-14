@@ -433,32 +433,27 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 			case err := <-(*logSubscription).Err():
 				(*newHeadSubscription).Unsubscribe()
 				e.handleSubscriptionError(err, &logSubscription, &newHeadSubscription)
-				break
 			case err := <-(*newHeadSubscription).Err():
 				(*logSubscription).Unsubscribe()
 				e.handleSubscriptionError(err, &logSubscription, &newHeadSubscription)
-				break
 			case event, ok := <-e.events:
 				noMoreEvents = !ok
-				if noMoreEvents {
-					break
+				if !noMoreEvents {
+					e.handleEvent(event)
 				}
-				e.handleEvent(event)
 			case newHeader, ok := <-e.newHeaders:
 				noMoreHeaders = !ok
-				if noMoreHeaders {
-					break
+				if !noMoreHeaders {
+					// Just advance highest block
+					e.m.Counter("block_header_received").Inc()
+					e.Logger.Debug("New block received",
+						zap.Int64("new height", newHeader.Number.Int64()),
+						zap.Int64("old height", e.cache.getHighestBlock().Int64()))
+					e.cache.setHighestBlock(newHeader.Number)
+
+					// Continue here to check for new events
+					continue
 				}
-
-				// Just advance highest block
-				e.m.Counter("block_header_received").Inc()
-				e.Logger.Debug("New block received",
-					zap.Int64("new height", newHeader.Number.Int64()),
-					zap.Int64("old height", e.cache.getHighestBlock().Int64()))
-				e.cache.setHighestBlock(newHeader.Number)
-
-				// Continue here to check for new events
-				continue
 			}
 
 			// If we didn't process any events in the select and the channels are closed,
