@@ -3,6 +3,7 @@ package executionlayer
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"math/big"
 	"net/url"
 	"time"
@@ -28,6 +29,11 @@ const maxCacheAgeBlocks = 64
 type nodeInfo struct {
 	inSmoothingPool bool
 	feeDistributor  common.Address
+}
+
+type RPInfo struct {
+	ExpectedFeeRecipient *common.Address
+	NodeAddress          common.Address
 }
 
 // ExecutionLayer is a bespoke execution layer client for the rescue proxy.
@@ -670,26 +676,20 @@ func (e *ExecutionLayer) ForEachOdaoNode(closure ForEachNodeClosure) error {
 	return e.cache.forEachOdaoNode(closure)
 }
 
-// ValidatorFeeRecipient returns the expected fee recipient for a validator, or nil if the validator is "unknown"
-// If the queryNodeAddr is not nil and the validator is a minipool but isn't owned by that node, (nil, true) is returned
-func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey rptypes.ValidatorPubkey, queryNodeAddr *common.Address) (*common.Address, bool) {
+// GetRPInfo returns the expected fee recipient and node address for a validator, or nil if the validator is not a minipool
+func (e *ExecutionLayer) GetRPInfo(pubkey rptypes.ValidatorPubkey) (*RPInfo, error) {
 
 	nodeAddr, err := e.cache.getMinipoolNode(pubkey)
 	if err != nil {
 		_, ok := err.(*NotFoundError)
 		if !ok {
 			e.Logger.Panic("error querying cache for minipool", zap.String("pubkey", pubkey.String()), zap.Error(err))
+			return nil, err
 		}
 
 		// Validator (hopefully) isn't a minipool
 		e.m.Counter("non_minipool_detected").Inc()
-		return nil, false
-	}
-
-	if queryNodeAddr != nil && !bytes.Equal(queryNodeAddr.Bytes(), nodeAddr.Bytes()) {
-		// This minipool was owned by someone else
-		e.m.Counter("minipool_unowned_by_node").Inc()
-		return nil, true
+		return nil, nil
 	}
 
 	nodeInfo, err := e.cache.getNodeInfo(nodeAddr)
@@ -700,6 +700,7 @@ func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey rptypes.ValidatorPubkey, q
 				zap.String("pubkey", pubkey.String()),
 				zap.String("node", nodeAddr.String()),
 				zap.Error(err))
+			return nil, err
 		}
 
 		// Validator was a minipool, but we don't have a node record for it. This is bad.
@@ -707,14 +708,20 @@ func (e *ExecutionLayer) ValidatorFeeRecipient(pubkey rptypes.ValidatorPubkey, q
 		e.Logger.Error("Validator was in the minipool index, but not the node index",
 			zap.String("pubkey", pubkey.String()),
 			zap.String("node", nodeAddr.String()))
-		return nil, false
+		return nil, fmt.Errorf("node %x not found in cache despite pubkey %x being present", nodeAddr, pubkey)
 	}
 
 	if nodeInfo.inSmoothingPool {
-		return e.smoothingPool.Address, false
+		return &RPInfo{
+			ExpectedFeeRecipient: e.smoothingPool.Address,
+			NodeAddress:          nodeAddr,
+		}, nil
 	}
 
-	return &nodeInfo.feeDistributor, false
+	return &RPInfo{
+		ExpectedFeeRecipient: &nodeInfo.feeDistributor,
+		NodeAddress:          nodeAddr,
+	}, nil
 }
 
 // REthAddress is a convenience function to get the rEth contract address

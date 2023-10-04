@@ -37,11 +37,11 @@ func TestCacheRoundTrip(t *testing.T) {
 		return
 	}
 
-	if !bytes.EqualFold(vInfo.Pubkey[:], expectedKey) {
+	if !bytes.Equal(vInfo.Pubkey[:], expectedKey) {
 		t.Fail()
 	}
 
-	if !bytes.EqualFold(vInfo.WithdrawalAddress[:], expectedAddr) {
+	if !bytes.Equal(vInfo.WithdrawalAddress[:], expectedAddr) {
 		t.Fail()
 	}
 }
