@@ -1,6 +1,7 @@
 package router
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -84,7 +85,7 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 		indices = append(indices, proposer.ValidatorIndex)
 	}
 
-	// Get the index->pubkey map
+	// Get the index->info map
 	validatorMap, err := pr.CL.GetValidatorInfo(indices)
 	if err != nil {
 		pr.Logger.Error("Error while querying CL for validator info", zap.Error(err))
@@ -124,17 +125,22 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 		pubkey := validatorInfo.Pubkey
 
 		// Next we need to get the expected fee recipient for the pubkey
-		expectedFeeRecipient, unowned := pr.EL.ValidatorFeeRecipient(pubkey, &authedNodeAddr)
-		if expectedFeeRecipient == nil {
+		rpInfo, err := pr.EL.GetRPInfo(pubkey)
+		if err != nil {
+			pr.Logger.Panic("error querying cache", zap.Error(err))
+			return gbp.InternalError, fmt.Errorf("error with cache, please report it to Rescue Node maintainers")
+		}
+
+		if rpInfo == nil || !bytes.Equal(rpInfo.NodeAddress[:], authedNodeAddr[:]) {
 			pr.m.Counter("prepare_beacon_proposer_unowned").Inc()
 			pr.Logger.Warn("Pubkey not found in EL cache, or wasn't owned by the user",
 				zap.String("key", pubkey.String()),
-				zap.Bool("someone else's validator", unowned))
+				zap.Bool("someone else's validator", rpInfo != nil))
 			return gbp.Forbidden, fmt.Errorf("attempting to set fee recipient for unowned minipool")
 		}
 
 		// If the fee recipient matches expectations, good, move on to the next one
-		if strings.EqualFold(expectedFeeRecipient.String(), proposer.FeeRecipient) {
+		if strings.EqualFold(rpInfo.ExpectedFeeRecipient.String(), proposer.FeeRecipient) {
 			pr.m.Counter("prepare_beacon_correct_fee_recipient").Inc()
 			metrics.ObserveValidator(authedNodeAddr, pubkey)
 			continue
@@ -145,7 +151,7 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 		if strings.EqualFold(pr.EL.REthAddress().String(), proposer.FeeRecipient) {
 			pr.m.Counter("prepare_beacon_reth_fee_recipient").Inc()
 			pr.Logger.Warn("prepare_beacon_proposer called with rETH fee recipient",
-				zap.String("expected", expectedFeeRecipient.String()),
+				zap.String("expected", rpInfo.ExpectedFeeRecipient.String()),
 				zap.String("node", authedNodeAddr.String()))
 			continue
 		}
@@ -153,8 +159,11 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 		// Looks like a cheater- fee recipient doesn't match expectations
 		pr.m.Counter("prepare_beacon_incorrect_fee_recipient").Inc()
 		pr.Logger.Warn("prepare_beacon_proposer called with unexpected fee recipient",
-			zap.String("expected", expectedFeeRecipient.String()), zap.String("got", proposer.FeeRecipient))
-		return gbp.Conflict, fmt.Errorf("actual fee recipient %s didn't match expected fee recipient %s", proposer.FeeRecipient, expectedFeeRecipient.String())
+			zap.String("expected", rpInfo.ExpectedFeeRecipient.String()), zap.String("got", proposer.FeeRecipient))
+		return gbp.Conflict, fmt.Errorf("actual fee recipient %s didn't match expected fee recipient %s",
+			proposer.FeeRecipient,
+			rpInfo.ExpectedFeeRecipient.String(),
+		)
 	}
 
 	// At this point all the fee recipients match our expectations. Proxy the request
@@ -215,23 +224,29 @@ func (pr *ProxyRouter) registerValidatorGuard(validators gbp.RegisterValidatorRe
 		}
 
 		// Grab the expected fee recipient for the pubkey
-		expectedFeeRecipient, unowned := pr.EL.ValidatorFeeRecipient(pubkey, &authedNodeAddr)
-		if expectedFeeRecipient == nil {
+		rpInfo, err := pr.EL.GetRPInfo(pubkey)
+		if err != nil {
+			pr.Logger.Panic("error querying cache", zap.Error(err))
+			return gbp.InternalError, fmt.Errorf("error with cache, please report it to Rescue Node maintainers")
+		}
+		if rpInfo == nil || !bytes.Equal(rpInfo.ExpectedFeeRecipient[:], authedNodeAddr[:]) {
 			// When unowned is true for register_validators, it means the pubkey was someone else's minipool
 			// we still want that to get rejected... however, if unowned is false and expectedFeeRecipient is nil,
 			// it means we're seeing a solo validator using mev-boost. Since register_validator requires a signature,
 			// we can allow this fee recipient.
-			if !unowned {
+			if rpInfo == nil {
 				pr.m.Counter("register_validator_not_minipool").Inc()
 				metrics.ObserveValidator(authedNodeAddr, pubkey)
 				// Move on to the next pubkey
 				continue
 			}
+
+			pr.m.Counter("minipool_unowned_by_node").Inc()
 			pr.Logger.Warn("Pubkey not found in EL cache. Not an RP validator?", zap.String("key", pubkey.String()))
 			return gbp.Forbidden, fmt.Errorf("unknown validator %s", pubkey.String())
 		}
 
-		if strings.EqualFold(expectedFeeRecipient.String(), validator.Message.FeeRecipient) {
+		if strings.EqualFold(rpInfo.ExpectedFeeRecipient.String(), validator.Message.FeeRecipient) {
 			// This fee recipient matches expectations, carry on to the next validator
 			pr.m.Counter("register_validator_correct_fee_recipient").Inc()
 			metrics.ObserveValidator(authedNodeAddr, pubkey)
@@ -243,15 +258,20 @@ func (pr *ProxyRouter) registerValidatorGuard(validators gbp.RegisterValidatorRe
 			// However, it does indicate a misconfigured node, so log it.
 			pr.m.Counter("register_validator_reth_fee_recipient").Inc()
 			pr.Logger.Warn("register_validator called with rETH fee recipient",
-				zap.String("expected", expectedFeeRecipient.String()),
+				zap.String("expected", rpInfo.ExpectedFeeRecipient.String()),
 				zap.String("node", authedNodeAddr.String()))
 			continue
 		}
 
 		pr.m.Counter("register_validator_incorrect_fee_recipient").Inc()
 		pr.Logger.Warn("register_validator called with unexpected fee recipient",
-			zap.String("expected", expectedFeeRecipient.String()), zap.String("got", validator.Message.FeeRecipient))
-		return gbp.Conflict, fmt.Errorf("actual fee recipient %s didn't match expected fee recipient %s", validator.Message.FeeRecipient, expectedFeeRecipient.String())
+			zap.String("expected", rpInfo.ExpectedFeeRecipient.String()),
+			zap.String("got", validator.Message.FeeRecipient),
+		)
+		return gbp.Conflict, fmt.Errorf("actual fee recipient %s didn't match expected fee recipient %s",
+			validator.Message.FeeRecipient,
+			rpInfo.ExpectedFeeRecipient.String(),
+		)
 
 	}
 
