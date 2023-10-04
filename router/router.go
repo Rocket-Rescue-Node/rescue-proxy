@@ -46,36 +46,23 @@ type ProxyRouter struct {
 // see: https://pkg.go.dev/context#WithValue
 type prContextKey string
 
-func (pr *ProxyRouter) pbpGuardSolo(withdrawalAddress common.Address, proposers gbp.PrepareBeaconProposerRequest) (gbp.AuthenticationStatus, error) {
-
-	indices := make([]string, 0, len(proposers))
-
-	for _, proposer := range proposers {
-
-		// Solo validators building local blocks must use their withdrawal address as their fee recipient
-		if !strings.EqualFold(withdrawalAddress.String(), proposer.FeeRecipient) {
-			pr.m.Counter("prepare_beacon_incorrect_fee_recipient_solo").Inc()
-			return gbp.Conflict, fmt.Errorf("solo validator fee recipient didn't match 0x01 credential for validator %s: expected %s",
-				proposer.ValidatorIndex, withdrawalAddress.String())
+func (pr *ProxyRouter) logCredentialSharing(rpInfo *executionlayer.RPInfo, validatorInfo *consensuslayer.ValidatorInfo, credNodeAddr common.Address) {
+	var chainNodeAddress common.Address
+	if rpInfo == nil {
+		// Solo validators on rv will not be looked up
+		if validatorInfo == nil {
+			return
 		}
-
-		// Collect indices for metrics
-		indices = append(indices, proposer.ValidatorIndex)
-		pr.m.Counter("prepare_beacon_correct_fee_recipient_solo").Inc()
+		// On pbp we will, so we can check
+		chainNodeAddress = validatorInfo.WithdrawalAddress
+	} else {
+		chainNodeAddress = rpInfo.NodeAddress
 	}
-
-	validatorInfo, err := pr.CL.GetValidatorInfo(indices)
-	if err != nil {
-		// Return here and skip metrics for now.
-		pr.Logger.Warn("Failed to query solo validator info for metrics", zap.Error(err))
-		return gbp.Allowed, nil
+	if !bytes.Equal(credNodeAddr[:], chainNodeAddress[:]) {
+		// Someone got a credential with one node and used it on a different node.
+		// No big deal, but track it with a metric
+		pr.m.Counter("prepare_beacon_proposer_credential_sharing")
 	}
-
-	for _, info := range validatorInfo {
-		metrics.ObserveSoloValidator(info.WithdrawalAddress, info.Pubkey)
-	}
-
-	return gbp.Allowed, nil
 }
 
 func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconProposerRequest, ctx context.Context) (gbp.AuthenticationStatus, error) {
@@ -96,23 +83,11 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 		return gbp.InternalError, nil
 	}
 
-	// Grab the authorized node address
+	// Grab the authorized node address, only used for metrics/logging
 	authedNode, ok := ctx.Value(prContextKey("node")).([]byte)
 	if !ok {
 		pr.Logger.Warn("Unable to retrieve node address cached on request context")
 		return gbp.InternalError, nil
-	}
-
-	// Grab the operator type
-	operatorType, ok := ctx.Value(prContextKey("operator_type")).(pb.OperatorType)
-	if !ok {
-		pr.Logger.Warn("Unable to retrieve operator_type cached on request context")
-		return gbp.InternalError, nil
-	}
-
-	authedNodeAddr := common.BytesToAddress(authedNode)
-	if operatorType == pb.OperatorType_OT_SOLO {
-		return pr.pbpGuardSolo(authedNodeAddr, proposers)
 	}
 
 	// Iterate the results and check the fee recipients against our expected values
@@ -135,18 +110,28 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 			return gbp.InternalError, fmt.Errorf("error with cache, please report it to Rescue Node maintainers")
 		}
 
-		if rpInfo == nil || !bytes.Equal(rpInfo.NodeAddress[:], authedNodeAddr[:]) {
-			pr.m.Counter("prepare_beacon_proposer_unowned").Inc()
-			pr.Logger.Warn("Pubkey not found in EL cache, or wasn't owned by the user",
-				zap.String("key", pubkey.String()),
-				zap.Bool("someone else's validator", rpInfo != nil))
-			return gbp.Forbidden, fmt.Errorf("attempting to set fee recipient for unowned minipool")
+		pr.logCredentialSharing(rpInfo, validatorInfo, common.BytesToAddress(authedNode))
+
+		if rpInfo == nil {
+			// Solo validators may only use their withdrawal credential in prepare_beacon_proposer
+			if !strings.EqualFold(validatorInfo.WithdrawalAddress.String(), proposer.FeeRecipient) {
+				pr.m.Counter("prepare_beacon_incorrect_fee_recipient_solo").Inc()
+				return gbp.Forbidden,
+					fmt.Errorf("attempting to set fee recipient to %s differs from 0x01 credential withdrawal address %x",
+						proposer.FeeRecipient,
+						validatorInfo.WithdrawalAddress,
+					)
+			}
+
+			pr.m.Counter("prepare_beacon_correct_fee_recipient_solo").Inc()
+			metrics.ObserveSoloValidator(validatorInfo.WithdrawalAddress, validatorInfo.Pubkey)
+			continue
 		}
 
 		// If the fee recipient matches expectations, good, move on to the next one
 		if strings.EqualFold(rpInfo.ExpectedFeeRecipient.String(), proposer.FeeRecipient) {
 			pr.m.Counter("prepare_beacon_correct_fee_recipient").Inc()
-			metrics.ObserveValidator(authedNodeAddr, pubkey)
+			metrics.ObserveValidator(rpInfo.NodeAddress, pubkey)
 			continue
 		}
 
@@ -156,7 +141,7 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 			pr.m.Counter("prepare_beacon_reth_fee_recipient").Inc()
 			pr.Logger.Warn("prepare_beacon_proposer called with rETH fee recipient",
 				zap.String("expected", rpInfo.ExpectedFeeRecipient.String()),
-				zap.String("node", authedNodeAddr.String()))
+				zap.String("node", rpInfo.NodeAddress.String()))
 			continue
 		}
 
@@ -174,27 +159,6 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 	return gbp.Allowed, nil
 }
 
-func (pr *ProxyRouter) rvGuardSolo(withdrawalAddress common.Address, validators gbp.RegisterValidatorRequest) (gbp.AuthenticationStatus, error) {
-
-	// We don't care to guard register_validator for solo credentials, since it requires a bls signature, and unlike RP,
-	// there are no constraints on valid fee recipients.
-	//
-	// Collect metrics only.
-
-	for _, validator := range validators {
-		pubkeyStr := strings.TrimPrefix(validator.Message.Pubkey, "0x")
-
-		pubkey, err := rptypes.HexToValidatorPubkey(pubkeyStr)
-		if err != nil {
-			pr.Logger.Warn("Malformed pubkey in register_validator_request", zap.Error(err), zap.String("pubkey", pubkeyStr))
-			continue
-		}
-		metrics.ObserveSoloValidator(withdrawalAddress, pubkey)
-	}
-
-	return gbp.Allowed, nil
-}
-
 func (pr *ProxyRouter) registerValidatorGuard(validators gbp.RegisterValidatorRequest, ctx context.Context) (gbp.AuthenticationStatus, error) {
 	pr.m.Counter("register_validator").Inc()
 
@@ -203,19 +167,6 @@ func (pr *ProxyRouter) registerValidatorGuard(validators gbp.RegisterValidatorRe
 	if !ok {
 		pr.Logger.Warn("Unable to retrieve node address cached on request context")
 		return gbp.InternalError, nil
-	}
-
-	// Grab the operator type
-	operatorType, ok := ctx.Value(prContextKey("operator_type")).(pb.OperatorType)
-	if !ok {
-		pr.Logger.Warn("Unable to retrieve operator_type cached on request context")
-		return gbp.InternalError, nil
-	}
-
-	authedNodeAddr := common.BytesToAddress(authedNode)
-
-	if operatorType == pb.OperatorType_OT_SOLO {
-		return pr.rvGuardSolo(authedNodeAddr, validators)
 	}
 
 	for _, validator := range validators {
@@ -233,27 +184,31 @@ func (pr *ProxyRouter) registerValidatorGuard(validators gbp.RegisterValidatorRe
 			pr.Logger.Panic("error querying cache", zap.Error(err))
 			return gbp.InternalError, fmt.Errorf("error with cache, please report it to Rescue Node maintainers")
 		}
-		if rpInfo == nil || !bytes.Equal(rpInfo.NodeAddress[:], authedNodeAddr[:]) {
-			// When unowned is true for register_validators, it means the pubkey was someone else's minipool
-			// we still want that to get rejected... however, if unowned is false and expectedFeeRecipient is nil,
-			// it means we're seeing a solo validator using mev-boost. Since register_validator requires a signature,
-			// we can allow this fee recipient.
-			if rpInfo == nil {
-				pr.m.Counter("register_validator_not_minipool").Inc()
-				metrics.ObserveValidator(authedNodeAddr, pubkey)
-				// Move on to the next pubkey
+
+		pr.logCredentialSharing(rpInfo, nil, common.BytesToAddress(authedNode))
+		if rpInfo == nil {
+			// Solo validators can do whatever they want in register_validator.
+			// The endpoint requires a signature, which the BN will validate, so
+			// we know for sure that the downstream user has custody of the BLS keys.
+
+			// The only thing to do is record some metrics
+			pubkeyStr := strings.TrimPrefix(validator.Message.Pubkey, "0x")
+
+			pubkey, err := rptypes.HexToValidatorPubkey(pubkeyStr)
+			if err != nil {
+				pr.Logger.Warn("Malformed pubkey in register_validator_request", zap.Error(err), zap.String("pubkey", pubkeyStr))
 				continue
 			}
 
-			pr.m.Counter("minipool_unowned_by_node").Inc()
-			pr.Logger.Warn("Pubkey not found in EL cache. Not an RP validator?", zap.String("key", pubkey.String()))
-			return gbp.Forbidden, fmt.Errorf("unknown validator %s", pubkey.String())
+			feeRecipient := common.HexToAddress(validator.Message.FeeRecipient)
+			metrics.ObserveSoloValidator(feeRecipient, pubkey)
+			continue
 		}
 
 		if strings.EqualFold(rpInfo.ExpectedFeeRecipient.String(), validator.Message.FeeRecipient) {
 			// This fee recipient matches expectations, carry on to the next validator
 			pr.m.Counter("register_validator_correct_fee_recipient").Inc()
-			metrics.ObserveValidator(authedNodeAddr, pubkey)
+			metrics.ObserveValidator(rpInfo.NodeAddress, pubkey)
 			continue
 		}
 
@@ -263,7 +218,7 @@ func (pr *ProxyRouter) registerValidatorGuard(validators gbp.RegisterValidatorRe
 			pr.m.Counter("register_validator_reth_fee_recipient").Inc()
 			pr.Logger.Warn("register_validator called with rETH fee recipient",
 				zap.String("expected", rpInfo.ExpectedFeeRecipient.String()),
-				zap.String("node", authedNodeAddr.String()))
+				zap.String("node", rpInfo.NodeAddress.String()))
 			continue
 		}
 
