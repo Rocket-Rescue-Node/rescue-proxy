@@ -59,15 +59,15 @@ func (pr *ProxyRouter) pbpGuardSolo(withdrawalAddress common.Address, proposers 
 		pr.m.Counter("prepare_beacon_correct_fee_recipient_solo").Inc()
 	}
 
-	pubkeys, err := pr.CL.GetValidatorPubkey(indices)
+	validatorInfo, err := pr.CL.GetValidatorInfo(indices)
 	if err != nil {
 		// Return here and skip metrics for now.
-		pr.Logger.Warn("Failed to query solo validator pubkeys for metrics", zap.Error(err))
+		pr.Logger.Warn("Failed to query solo validator info for metrics", zap.Error(err))
 		return gbp.Allowed, nil
 	}
 
-	for _, pubkey := range pubkeys {
-		metrics.ObserveSoloValidator(withdrawalAddress, pubkey)
+	for _, info := range validatorInfo {
+		metrics.ObserveSoloValidator(info.WithdrawalAddress, info.Pubkey)
 	}
 
 	return gbp.Allowed, nil
@@ -85,9 +85,9 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 	}
 
 	// Get the index->pubkey map
-	pubkeyMap, err := pr.CL.GetValidatorPubkey(indices)
+	validatorMap, err := pr.CL.GetValidatorInfo(indices)
 	if err != nil {
-		pr.Logger.Error("Error while querying CL for validator pubkeys", zap.Error(err))
+		pr.Logger.Error("Error while querying CL for validator info", zap.Error(err))
 		return gbp.InternalError, nil
 	}
 
@@ -114,12 +114,14 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 	// Note: we iterate the map from the HTTP request to ensure every key is present in the
 	// response from the consensuslayer abstraction
 	for _, proposer := range proposers {
-		pubkey, found := pubkeyMap[proposer.ValidatorIndex]
+		validatorInfo, found := validatorMap[proposer.ValidatorIndex]
 		if !found {
 			pr.Logger.Warn("Pubkey for index not found in response from cl.",
 				zap.String("requested index", proposer.ValidatorIndex))
 			return gbp.BadRequest, fmt.Errorf("unknown validator index %s", proposer.ValidatorIndex)
 		}
+
+		pubkey := validatorInfo.Pubkey
 
 		// Next we need to get the expected fee recipient for the pubkey
 		expectedFeeRecipient, unowned := pr.EL.ValidatorFeeRecipient(pubkey, &authedNodeAddr)
