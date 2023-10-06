@@ -69,18 +69,16 @@ func (c *ConsensusLayer) onHeadUpdate(e *apiv1.Event) {
 }
 
 // Init connects to the consensus layer and initializes the cache
-func (c *ConsensusLayer) Init() error {
-	var err error
-	var ctx context.Context
+func (c *ConsensusLayer) Init(ctx context.Context) error {
 
 	// Connect to BN
-	ctx, c.disconnect = context.WithCancel(context.Background())
+	ctx, c.disconnect = context.WithCancel(ctx)
 	client, err := http.New(ctx,
 		http.WithAddress(c.bnURL.String()),
 		// It's very chatty if we don't quiet it down
 		http.WithLogLevel(zerolog.WarnLevel),
 		// Set a sensible timeout. This is used as a maximum. Requests can set their own via ctx.
-		http.WithTimeout(1*time.Minute))
+		http.WithTimeout(10*time.Second))
 	if err != nil {
 		return err
 	}
@@ -96,10 +94,10 @@ func (c *ConsensusLayer) Init() error {
 		c.logger.Debug("Fetched slots per epoch", zap.Uint64("slots", c.slotsPerEpoch))
 	}
 
-	c.logger.Debug("Connected to Beacon Node", zap.String("url", c.bnURL.String()))
+	c.logger.Info("Connected to Beacon Node", zap.String("url", c.bnURL.String()))
 
 	// Listen for head updates
-	err = c.client.Events(context.Background(), []string{"head"}, c.onHeadUpdate)
+	err = c.client.Events(ctx, []string{"head"}, c.onHeadUpdate)
 	if err != nil {
 		c.logger.Warn("Clouldn't subscribe to CL events. Metrics will be inaccurate", zap.Error(err))
 	}
@@ -114,7 +112,7 @@ func (c *ConsensusLayer) Init() error {
 		return err
 	}
 
-	c.logger.Debug("Initialized pubkey cache")
+	c.logger.Info("Initialized pubkey cache")
 
 	return nil
 }
@@ -154,8 +152,11 @@ func (c *ConsensusLayer) GetValidatorInfo(validatorIndices []string) (map[string
 		return out, nil
 	}
 
+	// Create a context to enforce a timeout
+	vCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	// Grab the index->validator map from the client if missing from the cache
-	resp, err := c.client.Validators(context.Background(), "head", missing)
+	resp, err := c.client.Validators(vCtx, "head", missing)
 	if err != nil {
 		return nil, err
 	}
@@ -206,5 +207,5 @@ func (c *ConsensusLayer) GetValidators() ([]*apiv1.Validator, error) {
 func (c *ConsensusLayer) Deinit() {
 	c.validatorCache.Close()
 	c.disconnect()
-	c.logger.Debug("HTTP Client Disconnected from the BN")
+	c.logger.Info("HTTP Client Disconnected from the BN")
 }

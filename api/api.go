@@ -147,7 +147,7 @@ func (a *API) Init() error {
 		}
 	}()
 
-	a.Logger.Debug("Seeding the solo validator cache")
+	a.Logger.Info("Seeding the solo validator cache")
 	err = a.updateCache()
 	if err != nil {
 		return err

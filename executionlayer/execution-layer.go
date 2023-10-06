@@ -97,7 +97,7 @@ func (e *ExecutionLayer) setECShutdownCb(cb func()) {
 
 	e.ethclientShutdownCb = func() {
 		cb()
-		e.Logger.Debug("Unsubscribed from EL events")
+		e.Logger.Info("Unsubscribed from EL events")
 	}
 }
 
@@ -121,7 +121,7 @@ func (e *ExecutionLayer) handleNodeEvent(event types.Log) {
 		}
 
 		e.m.Counter("node_registration_added").Inc()
-		e.Logger.Debug("New node registered", zap.String("addr", addr.String()))
+		e.Logger.Info("New node registered", zap.String("addr", addr.String()))
 		return
 	}
 
@@ -153,7 +153,7 @@ func (e *ExecutionLayer) handleNodeEvent(event types.Log) {
 
 		}
 
-		e.Logger.Debug("Node SP status changed", zap.String("addr", nodeAddr.String()), zap.Bool("in_sp", status.Cmp(big.NewInt(1)) == 0))
+		e.Logger.Info("Node SP status changed", zap.String("addr", nodeAddr.String()), zap.Bool("in_sp", status.Cmp(big.NewInt(1)) == 0))
 		n.inSmoothingPool = status.Cmp(big.NewInt(1)) == 0
 		err = e.cache.addNodeInfo(nodeAddr, n)
 		if err != nil {
@@ -192,7 +192,7 @@ func (e *ExecutionLayer) handleMinipoolEvent(event types.Log) {
 		e.Logger.Warn("Error updating minipool cache", zap.Error(err))
 	}
 	e.m.Counter("minipool_launch_received").Inc()
-	e.Logger.Debug("Added new minipool", zap.String("pubkey", minipoolDetails.Pubkey.String()), zap.String("node", nodeAddr.String()))
+	e.Logger.Info("Added new minipool", zap.String("pubkey", minipoolDetails.Pubkey.String()), zap.String("node", nodeAddr.String()))
 }
 
 func (e *ExecutionLayer) handleOdaoEvent(event types.Log) {
@@ -267,14 +267,14 @@ func (e *ExecutionLayer) backfillEvents() error {
 	}
 	stop := header.Number
 
-	e.Logger.Debug("Checking if backfill neeeded",
+	e.Logger.Info("Checking if backfill neeeded",
 		zap.Uint64("cache height", start.Uint64()),
 		zap.Uint64("current height", stop.Uint64()),
 		zap.Int("cmp", start.Cmp(stop)))
 
 	// Make sure there is actually a gap before backfilling
 	if stop.Cmp(start) < 0 {
-		e.Logger.Debug("No blocks to backfill events from")
+		e.Logger.Info("No blocks to backfill events from")
 		return nil
 	}
 
@@ -313,7 +313,7 @@ func (e *ExecutionLayer) backfillEvents() error {
 	delta = delta.Add(delta, big.NewInt(1))
 	e.m.Counter("backfill_blocks").Add(float64(delta.Uint64()))
 
-	e.Logger.Debug("Backfilled events", zap.Int("events", len(missedEvents)),
+	e.Logger.Info("Backfilled events", zap.Int("events", len(missedEvents)),
 		zap.Uint64("blocks", delta.Uint64()),
 		zap.Int64("start", start.Int64()), zap.Int64("stop", stop.Int64()))
 	return nil
@@ -365,7 +365,7 @@ func (e *ExecutionLayer) handleSubscriptionError(err error, logEventSub **ethere
 		select {
 		case <-e.ctx.Done():
 			// We're shutting down, so exit now
-			e.Logger.Debug("Terminating while re-establishing the connection to the EL")
+			e.Logger.Info("Terminating while re-establishing the connection to the EL")
 			return
 		case <-time.After(time.Duration(i) * (5 * time.Second)):
 			// Loop again
@@ -412,7 +412,7 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 		return err
 	}
 
-	e.Logger.Debug("Subscribed to EL events")
+	e.Logger.Info("Subscribed to EL events")
 
 	// After subscribing, we need to grab the current block and replay events between highestBlock and the current one.
 	// While we were building the cache from cold, we may have missed some events.
@@ -517,7 +517,7 @@ func (e *ExecutionLayer) Init() error {
 	delta.Sub(header.Number, cacheBlock)
 	if delta.Int64() < 0 || delta.Int64() > maxCacheAgeBlocks {
 		// Reset caches from the future and the distance past
-		e.Logger.Warn("Cache is stale or from the future, resetting...",
+		e.Logger.Info("Cache is stale or from the future, resetting...",
 			zap.Int64("cache block", cacheBlock.Int64()),
 			zap.Int64("current block", header.Number.Int64()),
 			zap.Int64("delta", delta.Int64()))
@@ -562,14 +562,14 @@ func (e *ExecutionLayer) Init() error {
 	if cacheBlock.Cmp(big.NewInt(0)) != 0 {
 		return nil
 	}
-	e.Logger.Warn("Warming up the cache")
+	e.Logger.Info("Warming up the cache")
 
 	// Get all nodes at the given block
 	nodes, err := node.GetNodes(e.rp, opts)
 	if err != nil {
 		return err
 	}
-	e.Logger.Debug("Found nodes to preload", zap.Int("count", len(nodes)), zap.Int64("block", opts.BlockNumber.Int64()))
+	e.Logger.Info("Found nodes to preload", zap.Int("count", len(nodes)), zap.Int64("block", opts.BlockNumber.Int64()))
 
 	minipoolCount := 0
 	for _, n := range nodes {
@@ -624,12 +624,12 @@ func (e *ExecutionLayer) Init() error {
 			return err
 		}
 	}
-	e.Logger.Debug("Found odao nodes to preload", zap.Int("count", len(odaoNodes)), zap.Int64("block", opts.BlockNumber.Int64()))
+	e.Logger.Info("Found odao nodes to preload", zap.Int("count", len(odaoNodes)), zap.Int64("block", opts.BlockNumber.Int64()))
 
 	// Set highestBlock to the cache's highestBlock, since it was just warmed up
 	e.cache.setHighestBlock(opts.BlockNumber)
 
-	e.Logger.Debug("Pre-loaded nodes and minipools",
+	e.Logger.Info("Pre-loaded nodes and minipools",
 		zap.Int("nodes", len(nodes)),
 		zap.Int("minipools", minipoolCount),
 		zap.Int("odao nodes", len(odaoNodes)))
@@ -652,14 +652,14 @@ func (e *ExecutionLayer) Start() error {
 
 // Stop shuts down this ExecutionLayer
 func (e *ExecutionLayer) Stop() {
-	e.Logger.Debug("Stopping ethclient")
+	e.Logger.Info("Stopping ethclient")
 	e.shutdown()
 	if e.ethclientShutdownCb != nil {
 		e.ethclientShutdownCb()
 	}
 	close(e.events)
 	close(e.newHeaders)
-	e.Logger.Debug("Stopping EL cache")
+	e.Logger.Info("Stopping EL cache")
 	err := e.cache.deinit()
 	if err != nil {
 		e.Logger.Error("error while stopping the cache", zap.Error(err))
