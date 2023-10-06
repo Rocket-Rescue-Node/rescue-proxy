@@ -1,4 +1,4 @@
-FROM golang:1.19-buster AS build
+FROM golang:1.20-buster AS build
 
 RUN apt-get update; apt-get install -y make protobuf-compiler gcc libc-dev
 RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28
