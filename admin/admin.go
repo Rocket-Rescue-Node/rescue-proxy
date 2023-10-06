@@ -11,6 +11,17 @@ import (
 
 type AdminApi struct {
 	http.Server
+
+	metricsHandler http.Handler
+}
+
+func (a *AdminApi) Init() error {
+	var err error
+
+	// Initialize metrics globals
+	a.metricsHandler, err = metrics.Init("rescue_proxy")
+
+	return err
 }
 
 func (a *AdminApi) Start(listenAddr string) error {
@@ -18,14 +29,8 @@ func (a *AdminApi) Start(listenAddr string) error {
 	a.Handler = mux.NewRouter()
 	a.Addr = listenAddr
 
-	// Initialize metrics globals
-	metricsHTTPHandler, err := metrics.Init("rescue_proxy")
-	if err != nil {
-		return err
-	}
-
 	// Add admin handlers to the admin only http server and start it
-	a.Handler.(*mux.Router).Path("/metrics").Handler(metricsHTTPHandler)
+	a.Handler.(*mux.Router).Path("/metrics").Handler(a.metricsHandler)
 	listener, err := net.Listen("tcp", a.Addr)
 	if err != nil {
 		return err

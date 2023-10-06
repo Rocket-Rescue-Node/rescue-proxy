@@ -66,7 +66,12 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 	s.Logger.Info("Starting up the rescue node proxy...")
 
 	// Create the admin-only http server
+	// This initializes metrics, so do it first.
 	s.admin = new(admin.AdminApi)
+	if err := s.admin.Init(); err != nil {
+		s.errs <- fmt.Errorf("unable to init admin api (metrics): %v", err)
+		return
+	}
 	go func() {
 		s.Logger.Info("Starting admin API")
 		if err := s.admin.Start(s.Config.AdminListenAddr); err != nil {
