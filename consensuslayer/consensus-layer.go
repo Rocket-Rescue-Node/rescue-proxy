@@ -78,7 +78,7 @@ func (c *ConsensusLayer) Init(ctx context.Context) error {
 		// It's very chatty if we don't quiet it down
 		http.WithLogLevel(zerolog.WarnLevel),
 		// Set a sensible timeout. This is used as a maximum. Requests can set their own via ctx.
-		http.WithTimeout(10*time.Second))
+		http.WithTimeout(5*time.Minute))
 	if err != nil {
 		return err
 	}
@@ -187,7 +187,7 @@ func (c *ConsensusLayer) GetValidatorInfo(validatorIndices []string) (map[string
 // GetValidators gets the list of all validators for the finalized state
 // It does no caching- the response is large, so caching should be done downstream, for the data the caller cares about.
 func (c *ConsensusLayer) GetValidators() ([]*apiv1.Validator, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	vmap, err := c.client.Validators(ctx, "finalized", nil)
