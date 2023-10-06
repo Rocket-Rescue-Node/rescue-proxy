@@ -233,7 +233,7 @@ func (pr *ProxyRouter) registerValidatorGuard(validators gbp.RegisterValidatorRe
 			pr.Logger.Panic("error querying cache", zap.Error(err))
 			return gbp.InternalError, fmt.Errorf("error with cache, please report it to Rescue Node maintainers")
 		}
-		if rpInfo == nil || !bytes.Equal(rpInfo.ExpectedFeeRecipient[:], authedNodeAddr[:]) {
+		if rpInfo == nil || !bytes.Equal(rpInfo.NodeAddress[:], authedNodeAddr[:]) {
 			// When unowned is true for register_validators, it means the pubkey was someone else's minipool
 			// we still want that to get rejected... however, if unowned is false and expectedFeeRecipient is nil,
 			// it means we're seeing a solo validator using mev-boost. Since register_validator requires a signature,
