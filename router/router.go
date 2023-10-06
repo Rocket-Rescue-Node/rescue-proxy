@@ -3,12 +3,14 @@ package router
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/Rocket-Pool-Rescue-Node/credentials"
 	"github.com/Rocket-Pool-Rescue-Node/credentials/pb"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
@@ -30,12 +32,14 @@ type ProxyRouter struct {
 	Logger               *zap.Logger
 	EL                   *executionlayer.ExecutionLayer
 	CL                   *consensuslayer.ConsensusLayer
+	CredentialSecret     string
 	AuthValidityWindow   time.Duration
 	EnableSoloValidators bool
 
-	gbp *gbp.GuardedBeaconProxy
-	m   *metrics.MetricsRegistry
-	gm  *metrics.MetricsRegistry
+	gbp  *gbp.GuardedBeaconProxy
+	m    *metrics.MetricsRegistry
+	gm   *metrics.MetricsRegistry
+	auth *auth
 }
 
 // Used to avoid collisions in context.WithValue()
@@ -291,7 +295,7 @@ func (pr *ProxyRouter) authenticate(r *http.Request) (gbp.AuthenticationStatus, 
 		return gbp.Unauthorized, nil, fmt.Errorf("missing credentials")
 	}
 
-	ac, err := authenticate(username, password)
+	ac, err := pr.auth.authenticate(username, password)
 	if err != nil {
 		pr.m.Counter("unauthed").Inc()
 		pr.Logger.Debug("Unable to authenticate credentials", zap.Error(err))
@@ -331,7 +335,7 @@ func (pr *ProxyRouter) grpcAuthenticate(md metadata.MD) (gbp.AuthenticationStatu
 		return gbp.Unauthorized, nil, fmt.Errorf("headers invalid")
 	}
 
-	ac, err := authenticate(auth[0], auth[1])
+	ac, err := pr.auth.authenticate(auth[0], auth[1])
 	if err != nil {
 		pr.gm.Counter("unauthed").Inc()
 		pr.Logger.Debug("Unable to authenticate credentials", zap.Error(err))
@@ -354,6 +358,14 @@ func (pr *ProxyRouter) grpcAuthenticate(md metadata.MD) (gbp.AuthenticationStatu
 }
 
 func (pr *ProxyRouter) Start() error {
+	// Initialize the auth handler
+	pr.auth = initAuth(
+		credentials.NewCredentialManager(
+			sha256.New,
+			[]byte(pr.CredentialSecret),
+		),
+		pr.AuthValidityWindow,
+	)
 
 	// Create the reverse proxy.
 	pr.gbp = &gbp.GuardedBeaconProxy{
