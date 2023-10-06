@@ -260,8 +260,11 @@ func (e *ExecutionLayer) backfillEvents() error {
 	// Since highestBlock was the highest processed block, start one block after
 	start := big.NewInt(0).Add(e.cache.getHighestBlock(), big.NewInt(1))
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	// Get current block
-	header, err := e.client.HeaderByNumber(context.Background(), nil)
+	header, err := e.client.HeaderByNumber(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -278,7 +281,7 @@ func (e *ExecutionLayer) backfillEvents() error {
 		return nil
 	}
 
-	missedEvents, err := e.client.FilterLogs(context.Background(), ethereum.FilterQuery{
+	missedEvents, err := e.client.FilterLogs(ctx, ethereum.FilterQuery{
 		// We only want events for 2 contracts
 		Addresses: []common.Address{*e.rocketMinipoolManager.Address, *e.rocketNodeManager.Address},
 		FromBlock: start,
@@ -507,7 +510,9 @@ func (e *ExecutionLayer) Init() error {
 	}
 
 	// First, get the current block
-	header, err := e.client.HeaderByNumber(context.Background(), nil)
+	ctx, cancel := context.WithTimeout(e.ctx, 5*time.Second)
+	defer cancel()
+	header, err := e.client.HeaderByNumber(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -639,7 +644,7 @@ func (e *ExecutionLayer) Init() error {
 
 func (e *ExecutionLayer) Start() error {
 	// First, get the current block
-	header, err := e.client.HeaderByNumber(context.Background(), nil)
+	header, err := e.client.HeaderByNumber(e.ctx, nil)
 	if err != nil {
 		return err
 	}

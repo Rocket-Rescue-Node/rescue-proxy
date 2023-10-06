@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/admin"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/api"
@@ -147,12 +148,16 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 
 	<-s.ctx.Done()
 
+	// Create a context for things that require one for graceful shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
 	// Stop the api used by rescue-api
 	s.a.Deinit()
 	s.Logger.Info("Stopped API")
 
 	// Stop the proxy
-	s.r.Stop(context.Background())
+	s.r.Stop(ctx)
 	s.Logger.Info("Stopped router")
 
 	// Shut down metrics server
