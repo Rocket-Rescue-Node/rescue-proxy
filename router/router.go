@@ -46,9 +46,22 @@ type ProxyRouter struct {
 // see: https://pkg.go.dev/context#WithValue
 type prContextKey string
 
-func (pr *ProxyRouter) logCredentialSharing(rpInfo *executionlayer.RPInfo, validatorInfo *consensuslayer.ValidatorInfo, credNodeAddr common.Address) {
+const prContextOperatorTypeKey = prContextKey("operator_type")
+const prContextNodeAddrKey = prContextKey("node")
+
+func (pr *ProxyRouter) logCredentialSharing(operatorType credentials.OperatorType,
+	rpInfo *executionlayer.RPInfo,
+	validatorInfo *consensuslayer.ValidatorInfo,
+	credNodeAddr common.Address) {
+
 	var chainNodeAddress common.Address
+
 	if rpInfo == nil {
+		if operatorType == pb.OperatorType_OT_ROCKETPOOL {
+			// The credential was issued to a rp node, but the validator appears to be solo.
+			pr.m.Counter("credential_sharing_rp_to_solo").Inc()
+			return
+		}
 		// Solo validators on rv will not be looked up
 		if validatorInfo == nil {
 			return
@@ -56,13 +69,42 @@ func (pr *ProxyRouter) logCredentialSharing(rpInfo *executionlayer.RPInfo, valid
 		// On pbp we will, so we can check
 		chainNodeAddress = validatorInfo.WithdrawalAddress
 	} else {
+		if operatorType == pb.OperatorType_OT_SOLO {
+			// The credential was issued to a solo validator, but appears to be used on a rp validator.
+			pr.m.Counter("credential_sharing_solo_to_rp").Inc()
+			return
+		}
+
 		chainNodeAddress = rpInfo.NodeAddress
 	}
-	if !bytes.Equal(credNodeAddr[:], chainNodeAddress[:]) {
-		// Someone got a credential with one node and used it on a different node.
-		// No big deal, but track it with a metric
-		pr.m.Counter("prepare_beacon_proposer_credential_sharing")
+
+	if bytes.Equal(credNodeAddr[:], chainNodeAddress[:]) {
+		return
 	}
+
+	// Someone got a credential with one node and used it on a different node.
+	switch operatorType {
+	case pb.OperatorType_OT_SOLO:
+		pr.m.Counter("credential_sharing_solo_to_solo").Inc()
+	case pb.OperatorType_OT_ROCKETPOOL:
+		pr.m.Counter("credential_sharing_rp_to_rp").Inc()
+	}
+}
+
+func (pr *ProxyRouter) readContext(ctx context.Context) ([]byte, credentials.OperatorType, error) {
+	// Grab the authorized node address, only used for metrics/logging
+	authedNode, ok := ctx.Value(prContextNodeAddrKey).([]byte)
+	if !ok {
+		return nil, 0, fmt.Errorf("unable to retrieve node address")
+	}
+
+	// Grab the credential type, only used for metrics/logging
+	operatorType, ok := ctx.Value(prContextOperatorTypeKey).(credentials.OperatorType)
+	if !ok {
+		return nil, 0, fmt.Errorf("unable to retrieve operator_type")
+	}
+
+	return authedNode, operatorType, nil
 }
 
 func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconProposerRequest, ctx context.Context) (gbp.AuthenticationStatus, error) {
@@ -83,10 +125,9 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 		return gbp.InternalError, nil
 	}
 
-	// Grab the authorized node address, only used for metrics/logging
-	authedNode, ok := ctx.Value(prContextKey("node")).([]byte)
-	if !ok {
-		pr.Logger.Warn("Unable to retrieve node address cached on request context")
+	authedNode, operatorType, err := pr.readContext(ctx)
+	if err != nil {
+		pr.Logger.Warn("Error reading cached data from request context", zap.Error(err))
 		return gbp.InternalError, nil
 	}
 
@@ -110,7 +151,7 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 			return gbp.InternalError, fmt.Errorf("error with cache, please report it to Rescue Node maintainers")
 		}
 
-		pr.logCredentialSharing(rpInfo, validatorInfo, common.BytesToAddress(authedNode))
+		pr.logCredentialSharing(operatorType, rpInfo, validatorInfo, common.BytesToAddress(authedNode))
 
 		if rpInfo == nil {
 			// Solo validators may only use their withdrawal credential in prepare_beacon_proposer
@@ -162,10 +203,9 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 func (pr *ProxyRouter) registerValidatorGuard(validators gbp.RegisterValidatorRequest, ctx context.Context) (gbp.AuthenticationStatus, error) {
 	pr.m.Counter("register_validator").Inc()
 
-	// Grab the authorized node address
-	authedNode, ok := ctx.Value(prContextKey("node")).([]byte)
-	if !ok {
-		pr.Logger.Warn("Unable to retrieve node address cached on request context")
+	authedNode, operatorType, err := pr.readContext(ctx)
+	if err != nil {
+		pr.Logger.Warn("Error reading cached data from request context", zap.Error(err))
 		return gbp.InternalError, nil
 	}
 
@@ -185,7 +225,7 @@ func (pr *ProxyRouter) registerValidatorGuard(validators gbp.RegisterValidatorRe
 			return gbp.InternalError, fmt.Errorf("error with cache, please report it to Rescue Node maintainers")
 		}
 
-		pr.logCredentialSharing(rpInfo, nil, common.BytesToAddress(authedNode))
+		pr.logCredentialSharing(operatorType, rpInfo, nil, common.BytesToAddress(authedNode))
 		if rpInfo == nil {
 			// Solo validators can do whatever they want in register_validator.
 			// The endpoint requires a signature, which the BN will validate, so
@@ -269,9 +309,9 @@ func (pr *ProxyRouter) authenticate(r *http.Request) (gbp.AuthenticationStatus, 
 	}
 	pr.Logger.Debug("Proxying Guarded URI", zap.String("uri", r.RequestURI))
 	// Add the node address to the request context
-	ctx := context.WithValue(r.Context(), prContextKey("node"), ac.Credential.NodeId)
+	ctx := context.WithValue(r.Context(), prContextNodeAddrKey, ac.Credential.NodeId)
 	// Add the operator type to the request context
-	ctx = context.WithValue(ctx, prContextKey("operator_type"), ac.Credential.OperatorType)
+	ctx = context.WithValue(ctx, prContextOperatorTypeKey, ac.Credential.OperatorType)
 	return gbp.Allowed, ctx, nil
 }
 
@@ -307,8 +347,8 @@ func (pr *ProxyRouter) grpcAuthenticate(md metadata.MD) (gbp.AuthenticationStatu
 		pr.gm.Counter("auth_ok_solo").Inc()
 	}
 
-	ctx := context.WithValue(context.Background(), prContextKey("node"), ac.Credential.NodeId)
-	ctx = context.WithValue(ctx, prContextKey("operator_type"), ac.Credential.OperatorType)
+	ctx := context.WithValue(context.Background(), prContextNodeAddrKey, ac.Credential.NodeId)
+	ctx = context.WithValue(ctx, prContextOperatorTypeKey, ac.Credential.OperatorType)
 	return gbp.Allowed, ctx, nil
 }
 
