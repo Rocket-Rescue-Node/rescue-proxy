@@ -46,7 +46,7 @@ func NewService(config *Config) *Service {
 
 // Run initializes the [Service] without blocking.
 // Callers should read from the returned channel to detect errors.
-// The provided [context.Context] cam becanceled to initiate a graceful shutdown,
+// The provided [context.Context] can be canceled to initiate a graceful shutdown,
 // and the returned channel will be closed.
 func (s *Service) Run(ctx context.Context) chan error {
 	out := make(chan error, 32)
