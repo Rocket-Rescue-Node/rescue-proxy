@@ -1,5 +1,6 @@
 VERSION = v0.3.7 
 
+SOURCES := $(shell find $(SOURCEDIR) -name '*.go')
 PROTO_IN := proto
 PROTO_OUT := pb
 PROTO_DEPS := $(wildcard $(PROTO_IN)/*.proto)
@@ -29,6 +30,12 @@ publish:
 	docker push rocketrescuenode/rescue-proxy:latest
 	docker push rocketrescuenode/rescue-proxy:$(VERSION)
 
+cov.out: $(SOURCES)
+	go test -coverprofile=cov.out ./...
+
+.PHONY: testcov
+testcov: cov.out
+	go tool cover -html=cov.out
 
 ./api-client: protos
 	go build -o api-client api/client/main.go

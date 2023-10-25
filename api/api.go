@@ -19,12 +19,11 @@ import (
 
 type API struct {
 	pb.UnimplementedApiServer
-	EL         *executionlayer.ExecutionLayer
-	CL         *consensuslayer.ConsensusLayer
-	Logger     *zap.Logger
-	ListenAddr string
-	server     *grpc.Server
-	m          *metrics.MetricsRegistry
+	EL     executionlayer.ExecutionLayer
+	CL     consensuslayer.ConsensusLayer
+	Logger *zap.Logger
+	server *grpc.Server
+	m      *metrics.MetricsRegistry
 
 	soloValidatorCache     map[common.Address]interface{}
 	soloValidatorCacheLock sync.RWMutex
@@ -32,6 +31,7 @@ type API struct {
 		t    *time.Ticker
 		done chan bool
 	}
+	ctx context.Context
 }
 
 func (a *API) GetRocketPoolNodes(ctx context.Context, request *pb.RocketPoolNodesRequest) (*pb.RocketPoolNodes, error) {
@@ -127,20 +127,15 @@ func (a *API) updateCache() error {
 	return nil
 }
 
-func (a *API) Init() error {
+func (a *API) Init(listener net.Listener) error {
 
 	a.m = metrics.NewMetricsRegistry("api")
-
-	listener, err := net.Listen("tcp", a.ListenAddr)
-	if err != nil {
-		return err
-	}
 
 	a.server = grpc.NewServer()
 
 	pb.RegisterApiServer(a.server, a)
 
-	a.Logger.Info("Starting grpc server", zap.String("url", a.ListenAddr))
+	a.Logger.Info("Starting grpc server", zap.String("url", listener.Addr().String()))
 	go func() {
 		if err := a.server.Serve(listener); err != nil {
 			a.Logger.Panic("gRPC server stopped", zap.Error(err))
@@ -148,7 +143,7 @@ func (a *API) Init() error {
 	}()
 
 	a.Logger.Info("Seeding the solo validator cache")
-	err = a.updateCache()
+	err := a.updateCache()
 	if err != nil {
 		return err
 	}
@@ -157,6 +152,9 @@ func (a *API) Init() error {
 	a.ticker.t = time.NewTicker(time.Second * 32 * 12 * 16)
 	a.ticker.done = make(chan bool)
 	a.Logger.Info("Starting solo validator background worker")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	a.ctx = ctx
 	go func() {
 		for {
 			select {
@@ -168,6 +166,7 @@ func (a *API) Init() error {
 				}
 			case <-a.ticker.done:
 				a.Logger.Info("Stopped background solo validator worker")
+				cancel()
 				return
 			}
 		}
@@ -180,4 +179,5 @@ func (a *API) Deinit() {
 	a.server.Stop()
 	a.ticker.t.Stop()
 	close(a.ticker.done)
+	<-a.ctx.Done()
 }

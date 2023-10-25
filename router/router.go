@@ -30,8 +30,8 @@ type ProxyRouter struct {
 	TLSCertFile          string
 	TLSKeyFile           string
 	Logger               *zap.Logger
-	EL                   *executionlayer.ExecutionLayer
-	CL                   *consensuslayer.ConsensusLayer
+	EL                   executionlayer.ExecutionLayer
+	CL                   consensuslayer.ConsensusLayer
 	CredentialSecret     string
 	AuthValidityWindow   time.Duration
 	EnableSoloValidators bool
@@ -155,7 +155,9 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 
 		if rpInfo == nil {
 			// Solo validators may only use their withdrawal credential in prepare_beacon_proposer
-			if !strings.EqualFold(validatorInfo.WithdrawalAddress.String(), proposer.FeeRecipient) {
+			if !validatorInfo.Is0x01 ||
+				!strings.EqualFold(validatorInfo.WithdrawalAddress.String(), proposer.FeeRecipient) {
+
 				pr.m.Counter("prepare_beacon_incorrect_fee_recipient_solo").Inc()
 				return gbp.Forbidden,
 					fmt.Errorf("attempting to set fee recipient to %s differs from 0x01 credential withdrawal address %x",

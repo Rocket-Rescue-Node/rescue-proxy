@@ -23,6 +23,8 @@ import (
 	"go.uber.org/zap"
 )
 
+type ForEachNodeClosure func(common.Address) bool
+
 const reconnectRetries = 10
 const maxCacheAgeBlocks = 64
 
@@ -36,10 +38,19 @@ type RPInfo struct {
 	NodeAddress          common.Address
 }
 
-// ExecutionLayer is a bespoke execution layer client for the rescue proxy.
+// ExecutionLayer is the abstract interface which provides the rescue proxy
+// with all the data needed to enforce fee recipients are 'correct'.
+type ExecutionLayer interface {
+	ForEachNode(ForEachNodeClosure) error
+	ForEachOdaoNode(ForEachNodeClosure) error
+	GetRPInfo(rptypes.ValidatorPubkey) (*RPInfo, error)
+	REthAddress() *common.Address
+}
+
+// CachingExecutionLayer is a bespoke execution layer client for the rescue proxy.
 // It abstracts away all the work to cache in-memory the data needed to enforce
 // that fee recipients are 'correct'.
-type ExecutionLayer struct {
+type CachingExecutionLayer struct {
 	// Fields passed in by the constructor which are later referenced
 	Logger            *zap.Logger
 	ECURL             *url.URL
@@ -89,7 +100,7 @@ type ExecutionLayer struct {
 	m *metrics.MetricsRegistry
 }
 
-func (e *ExecutionLayer) setECShutdownCb(cb func()) {
+func (e *CachingExecutionLayer) setECShutdownCb(cb func()) {
 	if cb == nil {
 		e.ethclientShutdownCb = nil
 		return
@@ -101,7 +112,7 @@ func (e *ExecutionLayer) setECShutdownCb(cb func()) {
 	}
 }
 
-func (e *ExecutionLayer) handleNodeEvent(event types.Log) {
+func (e *CachingExecutionLayer) handleNodeEvent(event types.Log) {
 
 	// Check if it's a node registration
 	if bytes.Equal(event.Topics[0].Bytes(), e.nodeRegisteredTopic.Bytes()) {
@@ -167,7 +178,7 @@ func (e *ExecutionLayer) handleNodeEvent(event types.Log) {
 	e.Logger.Warn("Event with unknown topic received", zap.String("string", event.Topics[0].String()))
 }
 
-func (e *ExecutionLayer) handleMinipoolEvent(event types.Log) {
+func (e *CachingExecutionLayer) handleMinipoolEvent(event types.Log) {
 
 	// Make sure it's an event for the only topic we subscribed to, minipool launches
 	if !bytes.Equal(event.Topics[0].Bytes(), e.minipoolLaunchedTopic.Bytes()) {
@@ -195,7 +206,7 @@ func (e *ExecutionLayer) handleMinipoolEvent(event types.Log) {
 	e.Logger.Info("Added new minipool", zap.String("pubkey", minipoolDetails.Pubkey.String()), zap.String("node", nodeAddr.String()))
 }
 
-func (e *ExecutionLayer) handleOdaoEvent(event types.Log) {
+func (e *CachingExecutionLayer) handleOdaoEvent(event types.Log) {
 
 	if bytes.Equal(event.Topics[0].Bytes(), e.odaoJoinedTopic.Bytes()) {
 		addr := common.BytesToAddress(event.Topics[1].Bytes())
@@ -222,7 +233,7 @@ func (e *ExecutionLayer) handleOdaoEvent(event types.Log) {
 	e.Logger.Warn("Event with unknown topic received", zap.String("string", event.Topics[0].String()))
 }
 
-func (e *ExecutionLayer) handleEvent(event types.Log) {
+func (e *CachingExecutionLayer) handleEvent(event types.Log) {
 	// events from the rocketNodeManager contract
 	e.m.Counter("subscription_event_received").Inc()
 	if bytes.Equal(e.rocketNodeManager.Address[:], event.Address[:]) {
@@ -256,7 +267,7 @@ out:
 //
 // All of this is only necessary because SubscribeFilterLogs doesn't seem to send old events, no matter
 // what FromBlock is set to.
-func (e *ExecutionLayer) backfillEvents() error {
+func (e *CachingExecutionLayer) backfillEvents() error {
 	// Since highestBlock was the highest processed block, start one block after
 	start := big.NewInt(0).Add(e.cache.getHighestBlock(), big.NewInt(1))
 
@@ -323,7 +334,7 @@ func (e *ExecutionLayer) backfillEvents() error {
 }
 
 // Will likely attempt to reconnect, and will overwrite the pointers passed with the new subscription objects
-func (e *ExecutionLayer) handleSubscriptionError(err error, logEventSub **ethereum.Subscription, headerSub **ethereum.Subscription) {
+func (e *CachingExecutionLayer) handleSubscriptionError(err error, logEventSub **ethereum.Subscription, headerSub **ethereum.Subscription) {
 	if e.ctx.Err() != nil {
 		// We're shutting down, so return quietly
 		return
@@ -380,7 +391,7 @@ func (e *ExecutionLayer) handleSubscriptionError(err error, logEventSub **ethere
 }
 
 // Registers to receive the events we care about
-func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
+func (e *CachingExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 	var err error
 
 	e.nodeRegisteredTopic = crypto.Keccak256Hash([]byte("NodeRegistered(address,uint256)"))
@@ -479,7 +490,7 @@ func (e *ExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 }
 
 // Init creates and warms up the ExecutionLayer cache.
-func (e *ExecutionLayer) Init() error {
+func (e *CachingExecutionLayer) Init() error {
 	var err error
 
 	e.m = metrics.NewMetricsRegistry("execution_layer")
@@ -642,7 +653,7 @@ func (e *ExecutionLayer) Init() error {
 	return nil
 }
 
-func (e *ExecutionLayer) Start() error {
+func (e *CachingExecutionLayer) Start() error {
 	// First, get the current block
 	header, err := e.client.HeaderByNumber(e.ctx, nil)
 	if err != nil {
@@ -656,7 +667,7 @@ func (e *ExecutionLayer) Start() error {
 }
 
 // Stop shuts down this ExecutionLayer
-func (e *ExecutionLayer) Stop() {
+func (e *CachingExecutionLayer) Stop() {
 	e.Logger.Info("Stopping ethclient")
 	e.shutdown()
 	if e.ethclientShutdownCb != nil {
@@ -672,17 +683,17 @@ func (e *ExecutionLayer) Stop() {
 }
 
 // ForEachNode calls the provided closure with the address of every rocket pool node the ExecutionLayer has observed
-func (e *ExecutionLayer) ForEachNode(closure ForEachNodeClosure) error {
+func (e *CachingExecutionLayer) ForEachNode(closure ForEachNodeClosure) error {
 	return e.cache.forEachNode(closure)
 }
 
 // ForEachOdaoNode calls the provided closure with the address of every odao node the ExecutionLayer has observed
-func (e *ExecutionLayer) ForEachOdaoNode(closure ForEachNodeClosure) error {
+func (e *CachingExecutionLayer) ForEachOdaoNode(closure ForEachNodeClosure) error {
 	return e.cache.forEachOdaoNode(closure)
 }
 
 // GetRPInfo returns the expected fee recipient and node address for a validator, or nil if the validator is not a minipool
-func (e *ExecutionLayer) GetRPInfo(pubkey rptypes.ValidatorPubkey) (*RPInfo, error) {
+func (e *CachingExecutionLayer) GetRPInfo(pubkey rptypes.ValidatorPubkey) (*RPInfo, error) {
 
 	nodeAddr, err := e.cache.getMinipoolNode(pubkey)
 	if err != nil {
@@ -730,6 +741,6 @@ func (e *ExecutionLayer) GetRPInfo(pubkey rptypes.ValidatorPubkey) (*RPInfo, err
 }
 
 // REthAddress is a convenience function to get the rEth contract address
-func (e *ExecutionLayer) REthAddress() *common.Address {
+func (e *CachingExecutionLayer) REthAddress() *common.Address {
 	return e.rEth.Address
 }

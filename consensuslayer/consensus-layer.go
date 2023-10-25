@@ -20,7 +20,14 @@ import (
 
 // ConsensusLayer provides an abstraction for the rescue proxy over the consensus layer
 // It's specifically needed to map validator indices to pubkeys prior to EL validation
-type ConsensusLayer struct {
+type ConsensusLayer interface {
+	GetValidatorInfo([]string) (map[string]*ValidatorInfo, error)
+	GetValidators() ([]*apiv1.Validator, error)
+}
+
+// CachingConsensusLayer provides rescue-proxy with the consensus layer information needed
+// to enforce fee recipients and caches it for performance.
+type CachingConsensusLayer struct {
 	bnURL  *url.URL
 	logger *zap.Logger
 
@@ -40,11 +47,12 @@ type ConsensusLayer struct {
 type ValidatorInfo struct {
 	Pubkey            rptypes.ValidatorPubkey
 	WithdrawalAddress common.Address
+	Is0x01            bool
 }
 
 // NewConsensusLayer creates a new consensus layer client using the provided url and logger
-func NewConsensusLayer(bnURL *url.URL, logger *zap.Logger) *ConsensusLayer {
-	out := &ConsensusLayer{}
+func NewCachingConsensusLayer(bnURL *url.URL, logger *zap.Logger) *CachingConsensusLayer {
+	out := &CachingConsensusLayer{}
 	out.bnURL = bnURL
 	out.logger = logger
 	out.m = metrics.NewMetricsRegistry("consensus_layer")
@@ -52,7 +60,7 @@ func NewConsensusLayer(bnURL *url.URL, logger *zap.Logger) *ConsensusLayer {
 	return out
 }
 
-func (c *ConsensusLayer) onHeadUpdate(e *apiv1.Event) {
+func (c *CachingConsensusLayer) onHeadUpdate(e *apiv1.Event) {
 	headEvent, ok := e.Data.(*apiv1.HeadEvent)
 	if !ok {
 		c.logger.Warn("Couldn't convert event to headEvent", zap.Any("event", e))
@@ -69,7 +77,7 @@ func (c *ConsensusLayer) onHeadUpdate(e *apiv1.Event) {
 }
 
 // Init connects to the consensus layer and initializes the cache
-func (c *ConsensusLayer) Init(ctx context.Context) error {
+func (c *CachingConsensusLayer) Init(ctx context.Context) error {
 
 	// Connect to BN
 	ctx, c.disconnect = context.WithCancel(ctx)
@@ -119,7 +127,7 @@ func (c *ConsensusLayer) Init(ctx context.Context) error {
 
 // GetValidatorIfno maps a validator index to a pubkey and withdrawal credential.
 // It caches responses from the beacon client in memory for an arbitrary amount of time to save resources.
-func (c *ConsensusLayer) GetValidatorInfo(validatorIndices []string) (map[string]*ValidatorInfo, error) {
+func (c *CachingConsensusLayer) GetValidatorInfo(validatorIndices []string) (map[string]*ValidatorInfo, error) {
 
 	// Pre-allocate the retval based on the argument length
 	out := make(map[string]*ValidatorInfo, len(validatorIndices))
@@ -174,6 +182,7 @@ func (c *ConsensusLayer) GetValidatorInfo(validatorIndices []string) (map[string
 		} else {
 			// BytesToAddress will cut off all but the last 20 bytes
 			out[strIndex].WithdrawalAddress = common.BytesToAddress(withdrawalCredentials)
+			out[strIndex].Is0x01 = true
 		}
 
 		// Add it to the cache. Ignore errors, we can always look the key up later
@@ -186,7 +195,7 @@ func (c *ConsensusLayer) GetValidatorInfo(validatorIndices []string) (map[string
 
 // GetValidators gets the list of all validators for the finalized state
 // It does no caching- the response is large, so caching should be done downstream, for the data the caller cares about.
-func (c *ConsensusLayer) GetValidators() ([]*apiv1.Validator, error) {
+func (c *CachingConsensusLayer) GetValidators() ([]*apiv1.Validator, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -204,7 +213,7 @@ func (c *ConsensusLayer) GetValidators() ([]*apiv1.Validator, error) {
 }
 
 // Deinit shuts down the consensus layer client
-func (c *ConsensusLayer) Deinit() {
+func (c *CachingConsensusLayer) Deinit() {
 	c.validatorCache.Close()
 	c.disconnect()
 	c.logger.Info("HTTP Client Disconnected from the BN")

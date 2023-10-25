@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -28,8 +29,8 @@ type Service struct {
 
 	// Sub-services
 	admin *admin.AdminApi
-	el    *executionlayer.ExecutionLayer
-	cl    *consensuslayer.ConsensusLayer
+	el    executionlayer.ExecutionLayer
+	cl    consensuslayer.ConsensusLayer
 	r     *router.ProxyRouter
 	a     *api.API
 
@@ -80,36 +81,38 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 	}()
 
 	// Connect to and initialize the execution layer
-	s.el = &executionlayer.ExecutionLayer{
+	el := &executionlayer.CachingExecutionLayer{
 		ECURL:             s.Config.ExecutionURL,
 		RocketStorageAddr: s.Config.RocketStorageAddr,
 		Logger:            s.Logger,
 		CachePath:         s.Config.CachePath,
 	}
+	s.el = el
 	// Init() blocks until the cache is warmed up. This is good, we don't want to
 	// start accepting http requests on the proxy until we're ready to handle them.
-	if err := s.el.Init(); err != nil {
+	if err := el.Init(); err != nil {
 		s.errs <- fmt.Errorf("unable to init Execution Layer client: %v", err)
 		return
 	}
 	// After Init() we still have to call Start() to subscribe to new blocks
 	go func() {
 		s.Logger.Info("Starting EL monitor")
-		if err := s.el.Start(); err != nil {
+		if err := el.Start(); err != nil {
 			s.errs <- fmt.Errorf("EL error: %v", err)
 		}
 	}()
 
 	// Connect to and initialize the consensus layer
-	s.cl = consensuslayer.NewConsensusLayer(s.Config.BeaconURL, s.Logger)
+	cl := consensuslayer.NewCachingConsensusLayer(s.Config.BeaconURL, s.Logger)
+	s.cl = cl
 	s.Logger.Info("Starting CL monitor")
 	// Consensus Layer is non-blocking/synchronous only.
 	// On Init() it will create the client and warm the validator key cache, which
 	// is needed to serve responses to rescue-api
-	if err := s.cl.Init(s.ctx); err != nil {
+	if err := cl.Init(s.ctx); err != nil {
 		// Optimization: serialize the EL cache by stopping it now so we can recover
 		// faster.
-		s.el.Stop()
+		el.Stop()
 		// Only write the error to the channel after so we don't panic while writing
 		// the cache to disk
 		s.errs <- fmt.Errorf("unable to init Consensus Layer client: %v", err)
@@ -139,14 +142,20 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 	}()
 
 	s.a = &api.API{
-		EL:         s.el,
-		CL:         s.cl,
-		Logger:     s.Logger,
-		ListenAddr: s.Config.APIListenAddr,
+		EL:     s.el,
+		CL:     s.cl,
+		Logger: s.Logger,
 	}
 	go func() {
 		s.Logger.Info("Starting rescue-api endpoint")
-		if err := s.a.Init(); err != nil {
+
+		listener, err := net.Listen("tcp", s.Config.APIListenAddr)
+		if err != nil {
+			s.errs <- err
+			return
+		}
+
+		if err := s.a.Init(listener); err != nil {
 			s.errs <- err
 		}
 	}()
@@ -171,11 +180,11 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 
 	// Disconnect from the execution client as soon as feasible after shutting down http
 	// handlers so that we can serialize the cache
-	s.el.Stop()
+	el.Stop()
 	s.Logger.Info("Stopped executionlayer")
 
 	// Disconnect from the consensus client
-	s.cl.Deinit()
+	cl.Deinit()
 	s.Logger.Info("Stopped consensuslayer")
 
 	close(s.errs)
