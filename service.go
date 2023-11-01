@@ -69,7 +69,7 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 	// Create the admin-only http server
 	// This initializes metrics, so do it first.
 	s.admin = new(admin.AdminApi)
-	if err := s.admin.Init(); err != nil {
+	if err := s.admin.Init("rescue_proxy"); err != nil {
 		s.errs <- fmt.Errorf("unable to init admin api (metrics): %v", err)
 		return
 	}
