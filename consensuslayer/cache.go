@@ -11,6 +11,9 @@ import (
 const pubkeyLength = 48
 const withdrawalLength = 20
 
+// Leave a byte for Is0x01
+const blobLength = pubkeyLength + withdrawalLength + 1
+
 type validatorCache struct {
 	*bigcache.BigCache
 }
@@ -34,21 +37,27 @@ func (c *validatorCache) Get(index string) *ValidatorInfo {
 		return nil
 	}
 
-	if len(blob) != pubkeyLength+withdrawalLength {
+	if len(blob) != blobLength {
 		return nil
 	}
 
 	out := ValidatorInfo{}
 	out.Pubkey = rptypes.BytesToValidatorPubkey(blob[:pubkeyLength])
-	out.WithdrawalAddress = common.BytesToAddress(blob[pubkeyLength:])
+	out.WithdrawalAddress = common.BytesToAddress(blob[pubkeyLength : pubkeyLength+withdrawalLength])
+	if blob[pubkeyLength+withdrawalLength] == 0x01 {
+		out.Is0x01 = true
+	}
 	return &out
 }
 
-func (c *validatorCache) Set(index string, v *ValidatorInfo) {
-	var blob [pubkeyLength + withdrawalLength]byte
+func (c *validatorCache) Set(index string, v *ValidatorInfo) error {
+	var blob [blobLength]byte
 
 	copy(blob[:], v.Pubkey[:])
 	copy(blob[pubkeyLength:], v.WithdrawalAddress[:])
+	if v.Is0x01 {
+		copy(blob[pubkeyLength+withdrawalLength:], []byte{0x01})
+	}
 
-	_ = c.BigCache.Set(index, blob[:])
+	return c.BigCache.Set(index, blob[:])
 }

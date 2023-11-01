@@ -26,22 +26,25 @@ func TestCacheRoundTrip(t *testing.T) {
 	expectedKey, _ := hex.DecodeString("b20fb4a9340f8b23197b8449db7a5d3d8d068570a2b61a8d78817537aac4fd5645434d3e89a918a3ba9d0b7707cbeae0")
 	expectedAddr, _ := hex.DecodeString("6a6d731664115Ff3C823807442a4dC94999b0923")
 
-	cache.Set("test", &ValidatorInfo{
+	err = cache.Set("test", &ValidatorInfo{
 		Pubkey:            rptypes.BytesToValidatorPubkey(expectedKey),
 		WithdrawalAddress: common.BytesToAddress(expectedAddr),
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	vInfo := cache.Get("test")
 	if vInfo == nil {
-		t.Fail()
+		t.Fatal("cache lookup failed")
 		return
 	}
 
 	if !bytes.Equal(vInfo.Pubkey[:], expectedKey) {
-		t.Fail()
+		t.Fatal("unexpected public key", vInfo.Pubkey.String())
 	}
 
 	if !bytes.Equal(vInfo.WithdrawalAddress[:], expectedAddr) {
-		t.Fail()
+		t.Fatal("unexpected Withdrawal Address", vInfo.WithdrawalAddress.String())
 	}
 }

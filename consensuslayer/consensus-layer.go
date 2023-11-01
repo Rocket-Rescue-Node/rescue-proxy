@@ -186,8 +186,13 @@ func (c *CachingConsensusLayer) GetValidatorInfo(validatorIndices []string) (map
 		}
 
 		// Add it to the cache. Ignore errors, we can always look the key up later
-		c.validatorCache.Set(strIndex, out[strIndex])
-		c.m.Counter("cache_add").Inc()
+		err = c.validatorCache.Set(strIndex, out[strIndex])
+		if err != nil {
+			c.logger.Warn("Error encountered while saving blob to cache", zap.Error(err))
+			c.m.Counter("cache_add_failed")
+		} else {
+			c.m.Counter("cache_add").Inc()
+		}
 	}
 
 	return out, nil

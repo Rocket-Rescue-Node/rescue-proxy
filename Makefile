@@ -30,6 +30,7 @@ publish:
 	docker push rocketrescuenode/rescue-proxy:latest
 	docker push rocketrescuenode/rescue-proxy:$(VERSION)
 
+.DELETE_ON_ERROR: cov.out
 cov.out: $(SOURCES)
 	go test -coverprofile=cov.out ./...
 
