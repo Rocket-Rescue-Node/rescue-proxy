@@ -14,8 +14,8 @@ import (
 type MockExecutionLayer struct {
 	nodes     []*executionlayer.RPInfo
 	odaoNodes []common.Address
-	vMap      map[rptypes.ValidatorPubkey]*executionlayer.RPInfo
-	reth      common.Address
+	VMap      map[rptypes.ValidatorPubkey]*executionlayer.RPInfo
+	REth      common.Address
 }
 
 func NewMockExecutionLayer(numNodes int, numOdaoNodes int, numValidators int, seed string) *MockExecutionLayer {
@@ -28,10 +28,10 @@ func NewMockExecutionLayer(numNodes int, numOdaoNodes int, numValidators int, se
 	out := new(MockExecutionLayer)
 	out.nodes = make([]*executionlayer.RPInfo, 0, numNodes)
 	out.odaoNodes = make([]common.Address, 0, numOdaoNodes)
-	out.vMap = make(map[rptypes.ValidatorPubkey]*executionlayer.RPInfo, numValidators)
+	out.VMap = make(map[rptypes.ValidatorPubkey]*executionlayer.RPInfo, numValidators)
 
 	// Create a fake rETH address
-	out.reth = randAddress(gen)
+	out.REth = randAddress(gen)
 
 	// Generate numNodes random info
 	for i := 0; i < numNodes; i++ {
@@ -53,7 +53,7 @@ func NewMockExecutionLayer(numNodes int, numOdaoNodes int, numValidators int, se
 	for i := 0; i < numValidators; i++ {
 		// Pick a random node
 		info := out.nodes[gen.Int31n(int32(numNodes))]
-		out.vMap[randPubkey(gen)] = info
+		out.VMap[randPubkey(gen)] = info
 	}
 
 	return out
@@ -81,7 +81,7 @@ func (m *MockExecutionLayer) ForEachOdaoNode(c executionlayer.ForEachNodeClosure
 }
 
 func (m *MockExecutionLayer) GetRPInfo(k rptypes.ValidatorPubkey) (*executionlayer.RPInfo, error) {
-	out, ok := m.vMap[k]
+	out, ok := m.VMap[k]
 	if !ok {
 		return nil, nil
 	}
@@ -89,5 +89,5 @@ func (m *MockExecutionLayer) GetRPInfo(k rptypes.ValidatorPubkey) (*executionlay
 }
 
 func (m *MockExecutionLayer) REthAddress() *common.Address {
-	return &m.reth
+	return &m.REth
 }

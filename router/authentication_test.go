@@ -14,7 +14,7 @@ import (
 var nodeId = []byte{0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99,
 	0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00}
 
-func setup(t *testing.T) *auth {
+func setupAuthTest(t *testing.T) *auth {
 	_, err := metrics.Init("authentication_test_" + t.Name())
 	if err != nil {
 		t.Fatal(err)
@@ -27,7 +27,7 @@ func setup(t *testing.T) *auth {
 }
 
 func TestValidCredential(t *testing.T) {
-	a := setup(t)
+	a := setupAuthTest(t)
 
 	// Create a valid credential
 	cred, err := a.cm.Create(time.Now(), nodeId, pb.OperatorType_OT_ROCKETPOOL)
@@ -50,7 +50,7 @@ func TestValidCredential(t *testing.T) {
 }
 
 func TestExpiredCredential(t *testing.T) {
-	a := setup(t)
+	a := setupAuthTest(t)
 
 	// Create a valid credential
 	cred, err := a.cm.Create(time.Now().Add(-time.Hour), nodeId, pb.OperatorType_OT_ROCKETPOOL)
@@ -72,7 +72,7 @@ func TestExpiredCredential(t *testing.T) {
 }
 
 func TestEmptyUsername(t *testing.T) {
-	a := setup(t)
+	a := setupAuthTest(t)
 
 	// Create a valid credential
 	cred, err := a.cm.Create(time.Now().Add(-time.Hour), nodeId, pb.OperatorType_OT_ROCKETPOOL)
@@ -94,7 +94,7 @@ func TestEmptyUsername(t *testing.T) {
 }
 
 func TestEmptyPassword(t *testing.T) {
-	a := setup(t)
+	a := setupAuthTest(t)
 
 	// Create a valid credential
 	cred, err := a.cm.Create(time.Now().Add(-time.Hour), nodeId, pb.OperatorType_OT_ROCKETPOOL)
@@ -113,7 +113,7 @@ func TestEmptyPassword(t *testing.T) {
 }
 
 func TestBadBase64(t *testing.T) {
-	a := setup(t)
+	a := setupAuthTest(t)
 
 	// Create a valid credential
 	cred, err := a.cm.Create(time.Now().Add(-time.Hour), nodeId, pb.OperatorType_OT_ROCKETPOOL)
@@ -132,7 +132,7 @@ func TestBadBase64(t *testing.T) {
 }
 
 func TestBadSecret(t *testing.T) {
-	a := setup(t)
+	a := setupAuthTest(t)
 
 	// Create a CM with a different secret
 	cm := credentials.NewCredentialManager(sha256.New, []byte("wrong"))
@@ -157,7 +157,7 @@ func TestBadSecret(t *testing.T) {
 }
 
 func TestFutureCredential(t *testing.T) {
-	a := setup(t)
+	a := setupAuthTest(t)
 
 	// Create a valid credential
 	cred, err := a.cm.Create(time.Now().Add(time.Hour), nodeId, pb.OperatorType_OT_ROCKETPOOL)
@@ -180,7 +180,7 @@ func TestFutureCredential(t *testing.T) {
 }
 
 func TestErrorMessages(t *testing.T) {
-	a := setup(t)
+	a := setupAuthTest(t)
 
 	// Create an expired credential
 	cred, err := a.cm.Create(time.Now().Add(-time.Hour), nodeId, pb.OperatorType_OT_ROCKETPOOL)

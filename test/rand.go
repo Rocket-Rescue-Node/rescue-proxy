@@ -36,6 +36,12 @@ func randWithdrawalCredentials(r *rand.Rand) []byte {
 		return out
 	}
 
+	return rand0x01Credentials(r)
+}
+
+func rand0x01Credentials(r *rand.Rand) []byte {
+	out := make([]byte, 32)
+
 	out[0] = 0x01
 	r.Read(out[12:])
 	return out

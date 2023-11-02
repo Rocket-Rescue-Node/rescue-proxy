@@ -17,6 +17,7 @@ import (
 
 type MockConsensusLayer struct {
 	validators map[string]*apiv1.Validator
+	Indices    map[rptypes.ValidatorPubkey]string
 }
 
 func NewMockConsensusLayer(numValidators int, seed string) *MockConsensusLayer {
@@ -28,10 +29,11 @@ func NewMockConsensusLayer(numValidators int, seed string) *MockConsensusLayer {
 	gen := rand.New(chaos)
 	out := new(MockConsensusLayer)
 	out.validators = make(map[string]*apiv1.Validator, numValidators)
+	out.Indices = make(map[rptypes.ValidatorPubkey]string)
 
 	for i := 0; i < numValidators; i++ {
 		pubkey := randPubkey(gen)
-		idx := gen.Int63n(int64(numValidators) * 2)
+		idx := 100 + i
 		balance := phase0.Gwei(gen.Int63())
 		out.validators[fmt.Sprint(idx)] = &apiv1.Validator{
 			Index:   phase0.ValidatorIndex(idx),
@@ -44,9 +46,38 @@ func NewMockConsensusLayer(numValidators int, seed string) *MockConsensusLayer {
 				Slashed:               gen.Int63n(10) == 0,
 			},
 		}
+
+		out.Indices[pubkey] = fmt.Sprint(idx)
 	}
 
 	return out
+}
+
+func (m *MockConsensusLayer) AddExecutionValidators(e *MockExecutionLayer, seed string) {
+	hash := md5.Sum([]byte(seed))
+	// Use the low 8 bytes as the seed for rand
+	seedInt := binary.LittleEndian.Uint64(hash[len(hash)-8:])
+	chaos := rand.NewSource(int64(seedInt))
+
+	gen := rand.New(chaos)
+	i := 0
+	for pubkey := range e.VMap {
+		idx := len(m.validators) + 100 + i
+		balance := phase0.Gwei(gen.Int63())
+		m.validators[fmt.Sprint(idx)] = &apiv1.Validator{
+			Index:   phase0.ValidatorIndex(idx),
+			Balance: balance,
+			Status:  randValidatorState(gen),
+			Validator: &phase0.Validator{
+				PublicKey:             phase0.BLSPubKey(pubkey),
+				WithdrawalCredentials: rand0x01Credentials(gen),
+				EffectiveBalance:      balance,
+				Slashed:               gen.Int63n(10) == 0,
+			},
+		}
+		m.Indices[pubkey] = fmt.Sprint(idx)
+		i++
+	}
 }
 
 func (m *MockConsensusLayer) GetValidatorInfo(idx []string) (map[string]*consensuslayer.ValidatorInfo, error) {
