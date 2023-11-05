@@ -217,7 +217,7 @@ func (pr *ProxyRouter) registerValidatorGuard(validators gbp.RegisterValidatorRe
 		pubkey, err := rptypes.HexToValidatorPubkey(pubkeyStr)
 		if err != nil {
 			pr.Logger.Warn("Malformed pubkey in register_validator_request", zap.Error(err), zap.String("pubkey", pubkeyStr))
-			return gbp.InternalError, nil
+			return gbp.BadRequest, fmt.Errorf("error parsing pubkey from request body: %v", err)
 		}
 
 		// Grab the expected fee recipient for the pubkey
@@ -234,13 +234,6 @@ func (pr *ProxyRouter) registerValidatorGuard(validators gbp.RegisterValidatorRe
 			// we know for sure that the downstream user has custody of the BLS keys.
 
 			// The only thing to do is record some metrics
-			pubkeyStr := strings.TrimPrefix(validator.Message.Pubkey, "0x")
-
-			pubkey, err := rptypes.HexToValidatorPubkey(pubkeyStr)
-			if err != nil {
-				pr.Logger.Warn("Malformed pubkey in register_validator_request", zap.Error(err), zap.String("pubkey", pubkeyStr))
-				continue
-			}
 
 			feeRecipient := common.HexToAddress(validator.Message.FeeRecipient)
 			metrics.ObserveSoloValidator(feeRecipient, pubkey)

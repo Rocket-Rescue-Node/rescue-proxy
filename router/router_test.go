@@ -645,3 +645,270 @@ func TestRouterPBPRPCheater(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRouterRVSolo(t *testing.T) {
+	rt := setup(t)
+
+	errs := make(chan error)
+	go func() {
+		err := rt.pr.Start()
+		errs <- err
+	}()
+
+	// Give the server a second to wake up
+	time.Sleep(50 * time.Millisecond)
+
+	// Grab RP validators to exclude
+	vMap := rt.pr.EL.(*test.MockExecutionLayer).VMap
+
+	// Grab all validators to pick from
+	validators, err := rt.pr.CL.GetValidators()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var pubkey rptypes.ValidatorPubkey
+	for _, v := range validators {
+		key := v.Validator.PublicKey
+		// Convert to rptypes
+		pubkey = rptypes.BytesToValidatorPubkey(key[:])
+
+		_, ok := vMap[pubkey]
+		if !ok {
+			// This isn't a rp validator, keep it
+			break
+		}
+	}
+
+	body := fmt.Sprintf(`
+			[{
+				"message": {
+					"gas_limit": "1",
+					"timestamp": "1",
+					"pubkey": "%s",
+					"fee_recipient": "%s"
+				},
+				"signature": "0x1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505cc411d61252fb6cb3fa0017b679f8bb2305b26a285fa2737f175668d0dff91cc1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505"
+			}]`,
+		pubkey.String(),
+		"0xabcf8e0d4e9587369b2301d0790347320302cc09")
+	t.Log("body", body)
+	username, pw := rt.validAuth(t, true)
+	resp, err := http.Post(
+		"http://"+username+":"+pw+"@"+rt.pr.Addr+"/eth/v1/validator/register_validator",
+		"application/json",
+		strings.NewReader(body),
+	)
+	if err != nil {
+		t.Fatal("unexpected error", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatal("unexpected status code", resp.StatusCode)
+	}
+}
+
+func TestRouterRVSoloMalformed(t *testing.T) {
+	rt := setup(t)
+
+	errs := make(chan error)
+	go func() {
+		err := rt.pr.Start()
+		errs <- err
+	}()
+
+	// Give the server a second to wake up
+	time.Sleep(50 * time.Millisecond)
+
+	body := fmt.Sprintf(`
+			[{
+				"message": {
+					"gas_limit": "1",
+					"timestamp": "1",
+					"pubkey": "%s",
+					"fee_recipient": "%s"
+				},
+				"signature": "0x1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505cc411d61252fb6cb3fa0017b679f8bb2305b26a285fa2737f175668d0dff91cc1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505"
+			}]`,
+		"bob",
+		"0xabcf8e0d4e9587369b2301d0790347320302cc09")
+	t.Log("body", body)
+
+	username, pw := rt.validAuth(t, true)
+	resp, err := http.Post(
+		"http://"+username+":"+pw+"@"+rt.pr.Addr+"/eth/v1/validator/register_validator",
+		"application/json",
+		strings.NewReader(body),
+	)
+	if err != nil {
+		t.Fatal("unexpected error", err)
+	}
+	if resp.StatusCode != 400 {
+		t.Fatal("unexpected status code", resp.StatusCode)
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var eMap map[string]string
+	err = json.Unmarshal(respBody, &eMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(eMap["error"], "error parsing pubkey from request body: Invalid validator public key hex string bob: invalid length 3") {
+		t.Fatal("unexpected status", eMap["error"])
+	}
+}
+
+func TestRouterRVRP(t *testing.T) {
+	rt := setup(t)
+
+	errs := make(chan error)
+	go func() {
+		err := rt.pr.Start()
+		errs <- err
+	}()
+
+	// Give the server a second to wake up
+	time.Sleep(50 * time.Millisecond)
+
+	// Grab a couple validators
+	vMap := rt.pr.EL.(*test.MockExecutionLayer).VMap
+
+	pubkeys := make([]rptypes.ValidatorPubkey, 0)
+	frs := make([]*common.Address, 0)
+	for pubkey, info := range vMap {
+		if len(pubkeys) == 2 {
+			break
+		}
+		frs = append(frs, info.ExpectedFeeRecipient)
+		pubkeys = append(pubkeys, pubkey)
+
+	}
+
+	username, pw := rt.validAuth(t, false)
+
+	rEth := rt.pr.EL.(*test.MockExecutionLayer).REth
+
+	body := fmt.Sprintf(`
+			[{
+				"message": {
+					"gas_limit": "1",
+					"timestamp": "1",
+					"pubkey": "%s",
+					"fee_recipient": "%s"
+				},
+				"signature": "0x1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505cc411d61252fb6cb3fa0017b679f8bb2305b26a285fa2737f175668d0dff91cc1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505"
+			},
+			{
+				"message": {
+					"gas_limit": "1",
+					"timestamp": "1",
+					"pubkey": "%s",
+					"fee_recipient": "%s"
+				},
+				"signature": "0x1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505cc411d61252fb6cb3fa0017b679f8bb2305b26a285fa2737f175668d0dff91cc1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505"
+			}
+			]`,
+		pubkeys[0].String(),
+		frs[0].String(),
+		pubkeys[1].String(),
+		rEth.String(),
+	)
+	t.Log("body", body)
+
+	resp, err := http.Post(
+		"http://"+username+":"+pw+"@"+rt.pr.Addr+"/eth/v1/validator/register_validator",
+		"application/json",
+		strings.NewReader(body),
+	)
+	if err != nil {
+		t.Fatal("unexpected error", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatal("unexpected status code", resp.StatusCode)
+	}
+}
+
+func TestRouterCheater(t *testing.T) {
+	rt := setup(t)
+
+	errs := make(chan error)
+	go func() {
+		err := rt.pr.Start()
+		errs <- err
+	}()
+
+	// Give the server a second to wake up
+	time.Sleep(50 * time.Millisecond)
+
+	// Grab a couple validators
+	vMap := rt.pr.EL.(*test.MockExecutionLayer).VMap
+
+	pubkeys := make([]rptypes.ValidatorPubkey, 0)
+	frs := make([]*common.Address, 0)
+	for pubkey, info := range vMap {
+		if len(pubkeys) == 2 {
+			break
+		}
+		frs = append(frs, info.ExpectedFeeRecipient)
+		pubkeys = append(pubkeys, pubkey)
+
+	}
+
+	username, pw := rt.validAuth(t, false)
+
+	body := fmt.Sprintf(`
+			[{
+				"message": {
+					"gas_limit": "1",
+					"timestamp": "1",
+					"pubkey": "%s",
+					"fee_recipient": "%s"
+				},
+				"signature": "0x1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505cc411d61252fb6cb3fa0017b679f8bb2305b26a285fa2737f175668d0dff91cc1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505"
+			},
+			{
+				"message": {
+					"gas_limit": "1",
+					"timestamp": "1",
+					"pubkey": "%s",
+					"fee_recipient": "%s"
+				},
+				"signature": "0x1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505cc411d61252fb6cb3fa0017b679f8bb2305b26a285fa2737f175668d0dff91cc1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505"
+			}
+			]`,
+		pubkeys[0].String(),
+		frs[0].String(),
+		pubkeys[1].String(),
+		"0xabcf8e0d4e9587369b2301d0790347320302cc09",
+	)
+	t.Log("body", body)
+
+	resp, err := http.Post(
+		"http://"+username+":"+pw+"@"+rt.pr.Addr+"/eth/v1/validator/register_validator",
+		"application/json",
+		strings.NewReader(body),
+	)
+	if err != nil {
+		t.Fatal("unexpected error", err)
+	}
+	if resp.StatusCode != 409 {
+		t.Fatal("unexpected status code", resp.StatusCode)
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var eMap map[string]string
+	err = json.Unmarshal(respBody, &eMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(eMap["error"], "actual fee recipient 0xabcf8e0d4e9587369b2301d0790347320302cc09 didn't match expected fee recipient") {
+		t.Fatal("unexpected status", eMap["error"])
+	}
+}
