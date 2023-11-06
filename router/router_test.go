@@ -3,6 +3,7 @@ package router
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,10 +17,12 @@ import (
 	"github.com/Rocket-Pool-Rescue-Node/credentials/pb"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/test"
+	gbp "github.com/Rocket-Rescue-Node/guarded-beacon-proxy"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ethereum/go-ethereum/common"
 	rptypes "github.com/rocket-pool/rocketpool-go/types"
 	"go.uber.org/zap/zaptest"
+	"google.golang.org/grpc/metadata"
 )
 
 type routerTest struct {
@@ -831,7 +834,7 @@ func TestRouterRVRP(t *testing.T) {
 	}
 }
 
-func TestRouterCheater(t *testing.T) {
+func TestRouterRVCheater(t *testing.T) {
 	rt := setup(t)
 
 	errs := make(chan error)
@@ -910,5 +913,205 @@ func TestRouterCheater(t *testing.T) {
 	}
 	if !strings.HasPrefix(eMap["error"], "actual fee recipient 0xabcf8e0d4e9587369b2301d0790347320302cc09 didn't match expected fee recipient") {
 		t.Fatal("unexpected status", eMap["error"])
+	}
+}
+
+func TestRouterGRPCAuth(t *testing.T) {
+	rt := setup(t)
+
+	errs := make(chan error)
+	go func() {
+		err := rt.pr.Start()
+		errs <- err
+	}()
+
+	// Give the server a second to wake up
+	time.Sleep(50 * time.Millisecond)
+
+	username, pw := rt.validAuth(t, false)
+	md := metadata.New(map[string]string{
+		"rprnauth": fmt.Sprintf("%s:%s", username, pw),
+	})
+
+	authStatus, ctx, err := rt.pr.grpcAuthenticate(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if authStatus != gbp.Allowed {
+		t.Fatal("Unexpected authStatus", authStatus)
+	}
+
+	val := ctx.Value(prContextNodeAddrKey)
+	node, ok := val.([]byte)
+	if !ok {
+		t.Fatal("Couldn't get node address from ctx")
+	}
+
+	if !strings.EqualFold(username, base64.URLEncoding.EncodeToString(node)) {
+		t.Fatal("incorrect node address from ctx")
+	}
+
+	val = ctx.Value(prContextOperatorTypeKey)
+	ot, ok := val.(pb.OperatorType)
+	if !ok {
+		t.Fatal("Couldn't get operator type from ctx")
+	}
+	if ot != pb.OperatorType_OT_ROCKETPOOL {
+		t.Fatal("Unexpected operator type from ctx", ot)
+	}
+}
+
+func TestRouterGRPCAuthSolo(t *testing.T) {
+	rt := setup(t)
+
+	errs := make(chan error)
+	go func() {
+		err := rt.pr.Start()
+		errs <- err
+	}()
+
+	// Give the server a second to wake up
+	time.Sleep(50 * time.Millisecond)
+
+	username, pw := rt.validAuth(t, true)
+	md := metadata.New(map[string]string{
+		"rprnauth": fmt.Sprintf("%s:%s", username, pw),
+	})
+
+	authStatus, ctx, err := rt.pr.grpcAuthenticate(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if authStatus != gbp.Allowed {
+		t.Fatal("Unexpected authStatus", authStatus)
+	}
+
+	val := ctx.Value(prContextNodeAddrKey)
+	node, ok := val.([]byte)
+	if !ok {
+		t.Fatal("Couldn't get node address from ctx")
+	}
+
+	if !strings.EqualFold(username, base64.URLEncoding.EncodeToString(node)) {
+		t.Fatal("incorrect node address from ctx")
+	}
+
+	val = ctx.Value(prContextOperatorTypeKey)
+	ot, ok := val.(pb.OperatorType)
+	if !ok {
+		t.Fatal("Couldn't get operator type from ctx")
+	}
+	if ot != pb.OperatorType_OT_SOLO {
+		t.Fatal("Unexpected operator type from ctx", ot)
+	}
+}
+
+func TestRouterGRPCAuthMissing(t *testing.T) {
+	rt := setup(t)
+
+	errs := make(chan error)
+	go func() {
+		err := rt.pr.Start()
+		errs <- err
+	}()
+
+	// Give the server a second to wake up
+	time.Sleep(50 * time.Millisecond)
+
+	md := metadata.New(map[string]string{})
+
+	authStatus, _, err := rt.pr.grpcAuthenticate(md)
+	if err == nil || err.Error() != "headers missing" {
+		t.Fatal("expected error about missing headers", err)
+	}
+
+	if authStatus != gbp.Unauthorized {
+		t.Fatal("Unexpected authStatus", authStatus)
+	}
+
+}
+
+func TestRouterGRPCAuthMissingColon(t *testing.T) {
+	rt := setup(t)
+
+	errs := make(chan error)
+	go func() {
+		err := rt.pr.Start()
+		errs <- err
+	}()
+
+	// Give the server a second to wake up
+	time.Sleep(50 * time.Millisecond)
+
+	md := metadata.New(map[string]string{
+		"rprnauth": "we're all mad here",
+	})
+
+	authStatus, _, err := rt.pr.grpcAuthenticate(md)
+	if err == nil || err.Error() != "headers invalid" {
+		t.Fatal("expected error about invalid headers", err)
+	}
+
+	if authStatus != gbp.Unauthorized {
+		t.Fatal("Unexpected authStatus", authStatus)
+	}
+
+}
+
+func TestRouterGRPCAuthMalformed(t *testing.T) {
+	rt := setup(t)
+
+	errs := make(chan error)
+	go func() {
+		err := rt.pr.Start()
+		errs <- err
+	}()
+
+	// Give the server a second to wake up
+	time.Sleep(50 * time.Millisecond)
+
+	username, pw := rt.validAuth(t, false)
+	md := metadata.New(map[string]string{
+		"rprnauth": fmt.Sprintf("%s:%s", username, strings.ToLower(pw)),
+	})
+
+	authStatus, _, err := rt.pr.grpcAuthenticate(md)
+	if err == nil || !strings.HasPrefix(err.Error(), "authentication failed, malformed credentials") {
+		t.Fatal("expected error about malformed headers", err)
+	}
+
+	if authStatus != gbp.Unauthorized {
+		t.Fatal("Unexpected authStatus", authStatus)
+	}
+
+}
+
+func TestRouterGRPCAuthSoloBackoff(t *testing.T) {
+	rt := setup(t)
+	rt.pr.EnableSoloValidators = false
+
+	errs := make(chan error)
+	go func() {
+		err := rt.pr.Start()
+		errs <- err
+	}()
+
+	// Give the server a second to wake up
+	time.Sleep(50 * time.Millisecond)
+
+	username, pw := rt.validAuth(t, true)
+	md := metadata.New(map[string]string{
+		"rprnauth": fmt.Sprintf("%s:%s", username, pw),
+	})
+
+	authStatus, _, err := rt.pr.grpcAuthenticate(md)
+	if err == nil || !strings.HasPrefix(err.Error(), "solo validator support was manually disabled") {
+		t.Fatal("expected error about backoff", err)
+	}
+
+	if authStatus != gbp.TooManyRequests {
+		t.Fatal("Unexpected authStatus", authStatus)
 	}
 }

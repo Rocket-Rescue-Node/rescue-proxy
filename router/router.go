@@ -333,12 +333,12 @@ func (pr *ProxyRouter) grpcAuthenticate(md metadata.MD) (gbp.AuthenticationStatu
 	}
 
 	if ac.Credential.OperatorType == pb.OperatorType_OT_ROCKETPOOL {
+		pr.gm.Counter("auth_ok").Inc()
+	} else {
 		// If we're dropping solo traffic, 429 it here
 		if !pr.EnableSoloValidators {
 			return gbp.TooManyRequests, nil, fmt.Errorf("solo validator support was manually disabled, but may be restored later")
 		}
-		pr.gm.Counter("auth_ok").Inc()
-	} else {
 		pr.gm.Counter("auth_ok_solo").Inc()
 	}
 
