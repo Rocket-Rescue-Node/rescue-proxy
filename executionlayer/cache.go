@@ -9,8 +9,6 @@ import (
 
 type NotFoundError struct{}
 
-type ForEachNodeClosure func(common.Address) bool
-
 func (e *NotFoundError) Error() string {
 	return "Key not found in cache"
 }
