@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -347,7 +348,7 @@ func (pr *ProxyRouter) grpcAuthenticate(md metadata.MD) (gbp.AuthenticationStatu
 	return gbp.Allowed, ctx, nil
 }
 
-func (pr *ProxyRouter) Start() error {
+func (pr *ProxyRouter) Init() {
 	// Initialize the auth handler
 	pr.auth = initAuth(
 		credentials.NewCredentialManager(
@@ -359,9 +360,7 @@ func (pr *ProxyRouter) Start() error {
 
 	// Create the reverse proxy.
 	pr.gbp = &gbp.GuardedBeaconProxy{
-		Addr:                       pr.Addr,
 		BeaconURL:                  pr.BeaconURL,
-		GRPCAddr:                   pr.GRPCAddr,
 		GRPCBeaconURL:              pr.GRPCBeaconURL,
 		HTTPAuthenticator:          pr.authenticate,
 		GRPCAuthenticator:          pr.grpcAuthenticate,
@@ -373,7 +372,22 @@ func (pr *ProxyRouter) Start() error {
 
 	pr.m = metrics.NewMetricsRegistry("http_proxy")
 	pr.gm = metrics.NewMetricsRegistry("grpc_proxy")
+}
+
+func (pr *ProxyRouter) Start() error {
+	pr.gbp.Addr = pr.Addr
+	pr.gbp.GRPCAddr = pr.GRPCAddr
 	return pr.gbp.ListenAndServe()
+}
+
+func (pr *ProxyRouter) Serve(httpListener net.Listener, grpcListener net.Listener) error {
+
+	pr.gbp.Addr = httpListener.Addr().String()
+	if grpcListener != nil {
+		pr.gbp.GRPCAddr = grpcListener.Addr().String()
+		return pr.gbp.Serve(httpListener, &grpcListener)
+	}
+	return pr.gbp.Serve(httpListener, nil)
 }
 
 func (pr *ProxyRouter) Stop(ctx context.Context) {

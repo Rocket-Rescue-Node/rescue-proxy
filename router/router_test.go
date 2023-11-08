@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -26,8 +27,9 @@ import (
 )
 
 type routerTest struct {
-	ctx context.Context
-	pr  *ProxyRouter
+	ctx   context.Context
+	pr    *ProxyRouter
+	start func()
 }
 
 type mockBeaconHandler struct {
@@ -42,7 +44,7 @@ func (m *mockBeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, responseString)
 }
 
-func setup(t *testing.T) routerTest {
+func setup(t *testing.T, errs chan error) routerTest {
 	_, err := metrics.Init("router_test_" + t.Name())
 	if err != nil {
 		t.Fatal(err)
@@ -62,29 +64,32 @@ func setup(t *testing.T) routerTest {
 		t.Fatal(err)
 	}
 
-	mockServer := httptest.NewUnstartedServer(new(mockBeaconHandler))
-	listenAddr := mockServer.Listener.Addr().String()
-	// Close the listener so its port can be reused by the router
-	mockServer.Close()
+	httpListener, err := net.Listen("tcp", "127.0.0.1:")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	cl := test.NewMockConsensusLayer(100, t.Name())
 	el := test.NewMockExecutionLayer(50, 5, 100, t.Name())
 
 	cl.AddExecutionValidators(el, t.Name())
 
+	pr := &ProxyRouter{
+		Addr:                 httpListener.Addr().String(),
+		BeaconURL:            beaconURL,
+		CL:                   cl,
+		EL:                   el,
+		Logger:               zaptest.NewLogger(t),
+		CredentialSecret:     "test",
+		AuthValidityWindow:   time.Hour,
+		EnableSoloValidators: true,
+	}
+	pr.Init()
 	return routerTest{
 		ctx: ctx,
-		pr: &ProxyRouter{
-			Addr:                 listenAddr,
-			BeaconURL:            beaconURL,
-			CL:                   cl,
-			EL:                   el,
-			Logger:               zaptest.NewLogger(t),
-			CredentialSecret:     "test",
-			AuthValidityWindow:   time.Hour,
-			EnableSoloValidators: true,
-			//GRPCAddr             string
-			//GRPCBeaconURL        string
+		pr:  pr,
+		start: func() {
+			errs <- pr.Serve(httpListener, nil)
 		},
 	}
 }
@@ -119,15 +124,11 @@ func (rt routerTest) validAuth(t *testing.T, solo bool) (string, string) {
 }
 
 func TestRouterStartStop(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
+
 	rt.pr.Stop(rt.ctx)
 
 	err := <-errs
@@ -137,16 +138,11 @@ func TestRouterStartStop(t *testing.T) {
 }
 
 func TestRouterMissingAuth(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
+
 	resp, err := http.Get("http://" + rt.pr.Addr)
 	if err != nil {
 		t.Fatal("unexpected error", err)
@@ -164,16 +160,10 @@ func TestRouterMissingAuth(t *testing.T) {
 }
 
 func TestRouterBadAuth(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	username, pw := rt.validAuth(t, false)
 	resp, err := http.Get("http://" + username + ":" + strings.ToLower(pw) + "@" + rt.pr.Addr)
@@ -193,16 +183,10 @@ func TestRouterBadAuth(t *testing.T) {
 }
 
 func TestRouterGoodAuth(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	username, pw := rt.validAuth(t, false)
 	resp, err := http.Get("http://" + username + ":" + pw + "@" + rt.pr.Addr)
@@ -230,16 +214,10 @@ func TestRouterGoodAuth(t *testing.T) {
 }
 
 func TestRouterGoodAuthSolo(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	username, pw := rt.validAuth(t, true)
 	resp, err := http.Get("http://" + username + ":" + pw + "@" + rt.pr.Addr)
@@ -267,17 +245,11 @@ func TestRouterGoodAuthSolo(t *testing.T) {
 }
 
 func TestRouterGoodAuthSoloBackoff(t *testing.T) {
-	rt := setup(t)
+	errs := make(chan error)
+	rt := setup(t, errs)
 	rt.pr.EnableSoloValidators = false
 
-	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
-
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	username, pw := rt.validAuth(t, true)
 	resp, err := http.Get("http://" + username + ":" + pw + "@" + rt.pr.Addr)
@@ -297,16 +269,10 @@ func TestRouterGoodAuthSoloBackoff(t *testing.T) {
 }
 
 func TestRouterPBPSolo(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	// Grab the list of validators from the mock client
 	valis, err := rt.pr.CL.GetValidators()
@@ -372,16 +338,10 @@ func TestRouterPBPSolo(t *testing.T) {
 }
 
 func TestRouterPBPSoloUnseen(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	username, pw := rt.validAuth(t, true)
 	resp, err := http.Post(
@@ -424,16 +384,10 @@ func TestRouterPBPSoloUnseen(t *testing.T) {
 }
 
 func TestRouterPBPSoloBadFeeRecipient(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	// Grab the list of validators from the mock client
 	valis, err := rt.pr.CL.GetValidators()
@@ -503,16 +457,10 @@ func TestRouterPBPSoloBadFeeRecipient(t *testing.T) {
 }
 
 func TestRouterPBPRP(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	// Grab a couple validators
 	vMap := rt.pr.EL.(*test.MockExecutionLayer).VMap
@@ -574,16 +522,10 @@ func TestRouterPBPRP(t *testing.T) {
 }
 
 func TestRouterPBPRPCheater(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	// Grab a couple validators
 	vMap := rt.pr.EL.(*test.MockExecutionLayer).VMap
@@ -650,16 +592,10 @@ func TestRouterPBPRPCheater(t *testing.T) {
 }
 
 func TestRouterRVSolo(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	// Grab RP validators to exclude
 	vMap := rt.pr.EL.(*test.MockExecutionLayer).VMap
@@ -711,16 +647,10 @@ func TestRouterRVSolo(t *testing.T) {
 }
 
 func TestRouterRVSoloMalformed(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	body := fmt.Sprintf(`
 			[{
@@ -765,16 +695,10 @@ func TestRouterRVSoloMalformed(t *testing.T) {
 }
 
 func TestRouterRVRP(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	// Grab a couple validators
 	vMap := rt.pr.EL.(*test.MockExecutionLayer).VMap
@@ -835,16 +759,10 @@ func TestRouterRVRP(t *testing.T) {
 }
 
 func TestRouterRVCheater(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	// Grab a couple validators
 	vMap := rt.pr.EL.(*test.MockExecutionLayer).VMap
@@ -917,16 +835,10 @@ func TestRouterRVCheater(t *testing.T) {
 }
 
 func TestRouterGRPCAuth(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	username, pw := rt.validAuth(t, false)
 	md := metadata.New(map[string]string{
@@ -963,16 +875,10 @@ func TestRouterGRPCAuth(t *testing.T) {
 }
 
 func TestRouterGRPCAuthSolo(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	username, pw := rt.validAuth(t, true)
 	md := metadata.New(map[string]string{
@@ -1009,16 +915,10 @@ func TestRouterGRPCAuthSolo(t *testing.T) {
 }
 
 func TestRouterGRPCAuthMissing(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	md := metadata.New(map[string]string{})
 
@@ -1034,16 +934,10 @@ func TestRouterGRPCAuthMissing(t *testing.T) {
 }
 
 func TestRouterGRPCAuthMissingColon(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	md := metadata.New(map[string]string{
 		"rprnauth": "we're all mad here",
@@ -1061,16 +955,10 @@ func TestRouterGRPCAuthMissingColon(t *testing.T) {
 }
 
 func TestRouterGRPCAuthMalformed(t *testing.T) {
-	rt := setup(t)
-
 	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
+	rt := setup(t, errs)
 
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	username, pw := rt.validAuth(t, false)
 	md := metadata.New(map[string]string{
@@ -1089,17 +977,11 @@ func TestRouterGRPCAuthMalformed(t *testing.T) {
 }
 
 func TestRouterGRPCAuthSoloBackoff(t *testing.T) {
-	rt := setup(t)
+	errs := make(chan error)
+	rt := setup(t, errs)
 	rt.pr.EnableSoloValidators = false
 
-	errs := make(chan error)
-	go func() {
-		err := rt.pr.Start()
-		errs <- err
-	}()
-
-	// Give the server a second to wake up
-	time.Sleep(50 * time.Millisecond)
+	go rt.start()
 
 	username, pw := rt.validAuth(t, true)
 	md := metadata.New(map[string]string{

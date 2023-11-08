@@ -73,12 +73,17 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 		s.errs <- fmt.Errorf("unable to init admin api (metrics): %v", err)
 		return
 	}
-	go func() {
-		s.Logger.Info("Starting admin API", zap.String("addr", s.Config.AdminListenAddr))
-		if err := s.admin.Start(s.Config.AdminListenAddr); err != nil {
-			s.errs <- err
-		}
-	}()
+	if listener, err := net.Listen("tcp", s.Config.AdminListenAddr); err != nil {
+		s.errs <- fmt.Errorf("unable to init admin api (metrics): %v", err)
+		return
+	} else {
+		go func() {
+			s.Logger.Info("Starting admin API", zap.String("addr", s.Config.AdminListenAddr))
+			if err := s.admin.Serve(listener); err != nil && err != http.ErrServerClosed {
+				s.errs <- err
+			}
+		}()
+	}
 
 	// Connect to and initialize the execution layer
 	el := &executionlayer.CachingExecutionLayer{
@@ -133,6 +138,7 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 		EnableSoloValidators: s.Config.EnableSoloValidators,
 		CredentialSecret:     s.Config.CredentialSecret,
 	}
+	s.r.Init()
 	// Spin up the rest of the servers on different goroutines, since they block.
 	go func() {
 		s.Logger.Info("Starting http server", zap.String("url", s.Config.ListenAddr))
@@ -175,7 +181,9 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 	s.Logger.Info("Stopped router")
 
 	// Shut down metrics server
-	s.admin.Close()
+	if err := s.admin.Shutdown(ctx); err != nil {
+		s.Logger.Info("Error stopping internal API", zap.Error(err))
+	}
 	s.Logger.Info("Stopped internal API")
 
 	// Disconnect from the execution client as soon as feasible after shutting down http

@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"testing"
 	"time"
@@ -30,23 +31,20 @@ func TestAdminStartStop(t *testing.T) {
 
 	errs := make(chan error)
 	// Omit a port and the library will pick one for us
+	listener, err := net.Listen("tcp", "127.0.0.1:")
+	if err != nil {
+		t.Fatal(err)
+	}
 	go func() {
-		err := a.Start("127.0.0.1:")
+		err := a.Serve(listener)
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errs <- err
 		}
 		close(errs)
 	}()
 
-	// Wait until the listener is listening
-	var addr string
-	for addr == "" {
-		time.Sleep(10 * time.Millisecond)
-		addr = "http://" + a.Addr + "/metrics"
-	}
-
 	// Hit the metrics handler to make sure it's replying
-	resp, err := http.Get(addr)
+	resp, err := http.Get("http://" + listener.Addr().String() + "/metrics")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +53,7 @@ func TestAdminStartStop(t *testing.T) {
 		t.Fatal("Non-200 status code received", resp.StatusCode)
 	}
 
-	err = a.Stop(ctx)
+	err = a.Shutdown(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

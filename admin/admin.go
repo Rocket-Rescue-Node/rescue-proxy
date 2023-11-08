@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"context"
 	"net"
 	"net/http"
 
@@ -11,43 +10,25 @@ import (
 
 type AdminApi struct {
 	http.Server
-
-	metricsHandler http.Handler
 }
 
 func (a *AdminApi) Init(name string) error {
 	var err error
 
 	// Initialize metrics globals
-	a.metricsHandler, err = metrics.Init(name)
-
-	return err
-}
-
-func (a *AdminApi) Start(listenAddr string) error {
+	metricsHandler, err := metrics.Init(name)
 
 	router := mux.NewRouter()
 
 	a.Handler = router
 
 	// Add admin handlers to the admin only http server and start it
-	router.Path("/metrics").Handler(a.metricsHandler)
-	listener, err := net.Listen("tcp", listenAddr)
-	if err != nil {
-		return err
-	}
+	router.Path("/metrics").Handler(metricsHandler)
 
-	a.Addr = listener.Addr().String()
-	return a.Serve(listener)
+	return err
 }
 
-func (a *AdminApi) Stop(ctx context.Context) error {
-	// Attempt a graceful stop
-	err := a.Shutdown(ctx)
-	if err == nil {
-		return nil
-	}
-
-	// Shutdown immediately if the context deadline is exceeded.
-	return a.Close()
+func (a *AdminApi) Serve(l net.Listener) error {
+	a.Addr = l.Addr().String()
+	return a.Server.Serve(l)
 }
