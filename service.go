@@ -74,7 +74,7 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 		return
 	}
 	go func() {
-		s.Logger.Info("Starting admin API")
+		s.Logger.Info("Starting admin API", zap.String("addr", s.Config.AdminListenAddr))
 		if err := s.admin.Start(s.Config.AdminListenAddr); err != nil {
 			s.errs <- err
 		}

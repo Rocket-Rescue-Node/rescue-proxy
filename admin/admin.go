@@ -32,7 +32,7 @@ func (a *AdminApi) Start(listenAddr string) error {
 
 	// Add admin handlers to the admin only http server and start it
 	router.Path("/metrics").Handler(a.metricsHandler)
-	listener, err := net.Listen("tcp", a.Addr)
+	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		return err
 	}
