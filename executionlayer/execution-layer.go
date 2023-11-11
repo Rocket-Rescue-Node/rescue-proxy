@@ -21,6 +21,7 @@ import (
 	"github.com/rocket-pool/rocketpool-go/rocketpool"
 	rptypes "github.com/rocket-pool/rocketpool-go/types"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 type ForEachNodeClosure func(common.Address) bool
@@ -98,6 +99,8 @@ type CachingExecutionLayer struct {
 	shutdown func()
 
 	m *metrics.MetricsRegistry
+
+	connected chan bool
 }
 
 func (e *CachingExecutionLayer) setECShutdownCb(cb func()) {
@@ -441,6 +444,7 @@ func (e *CachingExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 		newHeadSub.Unsubscribe()
 	})
 
+	e.connected <- true
 	{
 		var noMoreEvents bool
 		var noMoreHeaders bool
@@ -494,6 +498,7 @@ func (e *CachingExecutionLayer) Init() error {
 	var err error
 
 	e.m = metrics.NewMetricsRegistry("execution_layer")
+	e.connected = make(chan bool, 1)
 
 	// Pick a cache
 	if e.CachePath == "" {
@@ -581,61 +586,72 @@ func (e *CachingExecutionLayer) Init() error {
 	e.Logger.Info("Warming up the cache")
 
 	// Get all nodes at the given block
-	nodes, err := node.GetNodes(e.rp, opts)
+	nodes, err := node.GetNodeAddresses(e.rp, opts)
 	if err != nil {
 		return err
 	}
 	e.Logger.Info("Found nodes to preload", zap.Int("count", len(nodes)), zap.Int64("block", opts.BlockNumber.Int64()))
 
 	minipoolCount := 0
-	for _, n := range nodes {
+	for _, addr := range nodes {
 		// Allocate a pointer for this node
 		nodeInfo := &nodeInfo{}
 		// Determine their smoothing pool status
-		nodeInfo.inSmoothingPool, err = node.GetSmoothingPoolRegistrationState(e.rp, n.Address, opts)
+		nodeInfo.inSmoothingPool, err = node.GetSmoothingPoolRegistrationState(e.rp, addr, opts)
 		if err != nil {
 			return err
 		}
 
 		// Get their fee distributor address
-		nodeInfo.feeDistributor, err = node.GetDistributorAddress(e.rp, n.Address, opts)
+		nodeInfo.feeDistributor, err = node.GetDistributorAddress(e.rp, addr, opts)
 		if err != nil {
 			return err
 		}
 
 		// Store the smoothing pool state / fee distributor in the node index
-		err = e.cache.addNodeInfo(n.Address, nodeInfo)
+		err = e.cache.addNodeInfo(addr, nodeInfo)
 		if err != nil {
 			return err
 		}
 
 		// Also grab their minipools
-		minipools, err := minipool.GetNodeMinipools(e.rp, n.Address, opts)
+		minipoolAddresses, err := minipool.GetNodeMinipoolAddresses(e.rp, addr, opts)
 		if err != nil {
 			return err
 		}
 
-		minipoolCount += len(minipools)
-		for _, minipool := range minipools {
-			err = e.cache.addMinipoolNode(minipool.Pubkey, n.Address)
-			if err != nil {
-				return err
-			}
+		minipoolCount += len(minipoolAddresses)
+		var wg errgroup.Group
+		wg.SetLimit(64)
+		for _, m := range minipoolAddresses {
+			m := m
+			wg.Go(func() error {
+				pubkey, err := minipool.GetMinipoolPubkey(e.rp, m, opts)
+				if err != nil {
+					return err
+				}
+				err = e.cache.addMinipoolNode(pubkey, addr)
+				if err != nil {
+					return err
+				}
+				return nil
+			})
+		}
+		err = wg.Wait()
+		if err != nil {
+			return err
 		}
 	}
 
 	// Get all odao nodes at the given block
-	odaoNodes, err := trustednode.GetMembers(e.rp, opts)
+	odaoNodes, err := trustednode.GetMemberAddresses(e.rp, opts)
 	if err != nil {
 		return err
 	}
 
 	for _, member := range odaoNodes {
-		if !member.Exists {
-			continue
-		}
 
-		err = e.cache.addOdaoNode(member.Address)
+		err = e.cache.addOdaoNode(member)
 		if err != nil {
 			return err
 		}
@@ -680,6 +696,7 @@ func (e *CachingExecutionLayer) Stop() {
 	if err != nil {
 		e.Logger.Error("error while stopping the cache", zap.Error(err))
 	}
+	close(e.connected)
 }
 
 // ForEachNode calls the provided closure with the address of every rocket pool node the ExecutionLayer has observed
@@ -724,7 +741,7 @@ func (e *CachingExecutionLayer) GetRPInfo(pubkey rptypes.ValidatorPubkey) (*RPIn
 		e.Logger.Error("Validator was in the minipool index, but not the node index",
 			zap.String("pubkey", pubkey.String()),
 			zap.String("node", nodeAddr.String()))
-		return nil, fmt.Errorf("node %x not found in cache despite pubkey %x being present", nodeAddr, pubkey)
+		return nil, fmt.Errorf("node %s not found in cache despite pubkey %s being present", nodeAddr.String(), pubkey.String())
 	}
 
 	if nodeInfo.inSmoothingPool {
