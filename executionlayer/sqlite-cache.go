@@ -206,7 +206,7 @@ func (s *SqliteCache) init() error {
 
 	// See if we have a sqlite snapshot we can load
 	if _, err = os.Stat(s.Path + "/" + snapshotFileName); os.IsNotExist(err) {
-		// Nothing to load, so initalize tables
+		// Nothing to load, so initialize tables
 		goto cont
 	}
 
