@@ -17,8 +17,10 @@ import (
 	"testing"
 
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/gorilla/websocket"
 	rptypes "github.com/rocket-pool/rocketpool-go/types"
 	"go.uber.org/zap/zaptest"
@@ -32,14 +34,20 @@ const rocketNodeManager = "0x00000000000000000000000089f478e6cc24f052103628f3659
 const rocketNodeDistributorFactory = "0x000000000000000000000000e228017f77b3e0785e794e4c0a8a6b935bb4037c"
 const rocketMinipoolManager = "0x0000000000000000000000006d010c43d4e96d74c422f2e27370af48711b49bf"
 const rocketDAONodeTrusted = "0x000000000000000000000000b8e783882b11Ff4f6Cef3C501EA0f4b960152cc9"
+const rocketDAONodeTrustedActions = "0x000000000000000000000000029d946f28f93399a5b0d09c879fc8c94e596aeb"
 const rocketSmoothingPool = "0x000000000000000000000000d4e96ef8eee8678dbff4d535e033ed1a4f7605b7"
 const rocketTokenRETH = "0x000000000000000000000000ae78736cd615f374d3085123a210448e74fc6393"
+
+const backfillNode = "0x000000000000000000000000515f7de509932bdc5ddc4c61e4324b18822c21da"
 
 //go:embed test-data/block-by-number.txt
 var blockByNumberFmt string
 
 //go:embed test-data/call-result-fmt.txt
 var callResultFmt string
+
+//go:embed test-data/log-filter-fmt.txt
+var logFilterFmt string
 
 //go:embed test-data/rocket-node-manager-abi.txt
 var rocketNodeManagerAbi string
@@ -129,6 +137,11 @@ func intToHex(i int) string {
 	return fmt.Sprintf("0x%064x", i)
 }
 
+func pubkeyFromMinipool(addr common.Address) string {
+	// Simply left-pad with a char out to the desired length
+	return fmt.Sprintf("f0f0%092s", addr.String()[2:])
+}
+
 func addrToMinipool(idx uint64, addr common.Address) string {
 	return fmt.Sprintf("0x%044x%s", idx+1, addr.String()[2+20:])
 }
@@ -181,6 +194,8 @@ func (e *happyEC) Serve(mt int, data []byte) (int, []byte) {
 		resp = fmt.Sprintf(blockByNumberFmt, m.ID, "0x11af2c8")
 	case "eth_subscribe", "eth_unsubscribe":
 		resp = fmt.Sprintf(callResultFmt, m.ID, "0x")
+	case "eth_getLogs":
+		resp = fmt.Sprintf(logFilterFmt, m.ID, backfillNode)
 	case "eth_call":
 		var paramsArray []json.RawMessage
 		err := json.Unmarshal(m.Params, &paramsArray)
@@ -224,7 +239,7 @@ func (e *happyEC) Serve(mt int, data []byte) (int, []byte) {
 					resp = fmt.Sprintf(callResultFmt, m.ID, rocketTokenRETH)
 				case "0db039c744237e4ce5ef78a0f054ce1d90d4c567f771ca22f1b89eed7a7b901c":
 					e.t.Log("Returning RocketDAONodeTrustedActions address")
-					resp = fmt.Sprintf(callResultFmt, m.ID, "0x000000000000000000000000029d946f28f93399a5b0d09c879fc8c94e596aeb")
+					resp = fmt.Sprintf(callResultFmt, m.ID, rocketDAONodeTrustedActions)
 				case "ea051094896ef3b09ab1b794ad5ea695a5ff3906f74a9328e2c16db69d0f3123":
 					e.t.Log("Returning RocketNodeDistributorFactory address")
 					resp = fmt.Sprintf(callResultFmt, m.ID, rocketNodeDistributorFactory)
@@ -361,8 +376,7 @@ func (e *happyEC) Serve(mt int, data []byte) (int, []byte) {
 			case "0x3eb535e9":
 				// The input is an address
 				addr := common.HexToAddress(input)
-				// Simply left-pad with a char out to the desired length
-				pubkey := fmt.Sprintf("f0f0%092s", addr.String()[2:])
+				pubkey := pubkeyFromMinipool(addr)
 				h, err := hex.DecodeString(pubkey)
 				if err != nil {
 					e.t.Fatal(err)
@@ -906,6 +920,512 @@ func TestELForEaches(t *testing.T) {
 	} else if !errors.Is(err, &NotFoundError{}) {
 		t.Fatal("unexpected error", err)
 	}
+
+	et.ec.Stop()
+	err = <-errs
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestELODAOJoinLeave(t *testing.T) {
+	et := setup(t, &happyEC{t,
+		[]*mockNode{
+			&mockNode{
+				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
+				inSP:      true,
+				minipools: 1,
+			},
+			&mockNode{
+				addr:      common.HexToAddress("0x0000000000000000000002234567899876543210"),
+				inSP:      false,
+				minipools: 3,
+			},
+		},
+		[]*mockNode{
+			&mockNode{
+				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
+				inSP:      false,
+				minipools: 0,
+			},
+		},
+	})
+
+	if err := et.ec.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	errs := make(chan error)
+	go func() {
+		if err := et.ec.Start(); err != nil {
+			errs <- err
+		}
+		close(errs)
+	}()
+
+	// Wait for connection
+	<-et.ec.connected
+
+	// New odao node
+	a := common.HexToAddress("0x0f010f")
+
+	// Simulate odao joined event
+	et.ec.handleEvent(types.Log{
+		Address: common.HexToAddress(rocketDAONodeTrustedActions),
+		Topics: []common.Hash{
+			common.BytesToHash(
+				et.ec.odaoJoinedTopic.Bytes(),
+			),
+			common.BytesToHash(
+				a.Bytes(),
+			),
+		},
+	})
+
+	// Check membership
+	found := false
+	err := et.ec.ForEachOdaoNode(func(n common.Address) bool {
+		if bytes.Equal(n.Bytes(), a.Bytes()) {
+			found = true
+			return false
+		}
+		return true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !found {
+		t.Fatalf("didn't find %s in active odao set", a.String())
+	}
+
+	// Simulate odao left event
+	et.ec.handleEvent(types.Log{
+		Address: common.HexToAddress(rocketDAONodeTrustedActions),
+		Topics: []common.Hash{
+			common.BytesToHash(
+				et.ec.odaoLeftTopic.Bytes(),
+			),
+			common.BytesToHash(
+				a.Bytes(),
+			),
+		},
+	})
+	// Check membership
+	found = false
+	err = et.ec.ForEachOdaoNode(func(n common.Address) bool {
+		if bytes.Equal(n.Bytes(), a.Bytes()) {
+			found = true
+			return false
+		}
+		return true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if found {
+		t.Fatalf("founnd %s in active odao set", a.String())
+	}
+
+	// Finally, make sure we don't crash on unknown topics
+	et.ec.handleEvent(types.Log{
+		Address: common.HexToAddress(rocketDAONodeTrustedActions),
+		Topics: []common.Hash{
+			common.HexToHash("0x10101010"),
+			common.BytesToHash(
+				a.Bytes(),
+			),
+		},
+	})
+
+	et.ec.Stop()
+	err = <-errs
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestELNodeEvents(t *testing.T) {
+	et := setup(t, &happyEC{t,
+		[]*mockNode{
+			&mockNode{
+				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
+				inSP:      true,
+				minipools: 1,
+			},
+			&mockNode{
+				addr:      common.HexToAddress("0x0000000000000000000002234567899876543210"),
+				inSP:      false,
+				minipools: 3,
+			},
+		},
+		[]*mockNode{
+			&mockNode{
+				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
+				inSP:      false,
+				minipools: 0,
+			},
+		},
+	})
+
+	if err := et.ec.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	errs := make(chan error)
+	go func() {
+		if err := et.ec.Start(); err != nil {
+			errs <- err
+		}
+		close(errs)
+	}()
+
+	// Wait for connection
+	<-et.ec.connected
+
+	// New node
+	a := common.HexToAddress("0x0f010f")
+
+	// Simulate node register event
+	et.ec.handleEvent(types.Log{
+		Address: common.HexToAddress(rocketNodeManager),
+		Topics: []common.Hash{
+			common.BytesToHash(
+				et.ec.nodeRegisteredTopic.Bytes(),
+			),
+			common.BytesToHash(
+				a.Bytes(),
+			),
+		},
+	})
+
+	// Check membership
+	found := false
+	err := et.ec.ForEachNode(func(n common.Address) bool {
+		if bytes.Equal(n.Bytes(), a.Bytes()) {
+			found = true
+			return false
+		}
+		return true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !found {
+		t.Fatalf("didn't find %s in active node set", a.String())
+	}
+
+	// Add a minipool
+	minipoolAddr := common.HexToAddress("0x1f101f")
+	et.ec.handleEvent(types.Log{
+		Address: common.HexToAddress(rocketMinipoolManager),
+		Topics: []common.Hash{
+			common.BytesToHash(
+				et.ec.minipoolLaunchedTopic.Bytes(),
+			),
+			common.BytesToHash(
+				minipoolAddr.Bytes(),
+			),
+			common.BytesToHash(
+				a.Bytes(),
+			),
+		},
+	})
+	pubkey := pubkeyFromMinipool(minipoolAddr)
+	h, err := hex.DecodeString(pubkey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rpinfo, err := et.ec.GetRPInfo(rptypes.BytesToValidatorPubkey(h))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if rpinfo.ExpectedFeeRecipient.String() == common.HexToAddress(rocketSmoothingPool).String() {
+		t.Fatal("Expected new node to not be in SP")
+	}
+
+	if rpinfo.NodeAddress.String() != a.String() {
+		t.Fatalf("rpinfo has unexpected node addr %s, expected %s", rpinfo.NodeAddress.String(), a.String())
+	}
+
+	// Opt into the SP
+	et.ec.handleEvent(types.Log{
+		Address: common.HexToAddress(rocketNodeManager),
+		Topics: []common.Hash{
+			common.BytesToHash(
+				et.ec.smoothingPoolStatusChangedTopic.Bytes(),
+			),
+			common.BytesToHash(
+				a.Bytes(),
+			),
+		},
+		Data: big.NewInt(1).Bytes(),
+	})
+
+	rpinfo, err = et.ec.GetRPInfo(rptypes.BytesToValidatorPubkey(h))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if rpinfo.ExpectedFeeRecipient.String() != common.HexToAddress(rocketSmoothingPool).String() {
+		t.Fatal("Expected new node to be in SP")
+	}
+
+	if rpinfo.NodeAddress.String() != a.String() {
+		t.Fatalf("rpinfo has unexpected node addr %s, expected %s", rpinfo.NodeAddress.String(), a.String())
+	}
+
+	// Finally, make sure we don't crash on unknown topics/contracts
+	et.ec.handleEvent(types.Log{
+		Address: common.HexToAddress(rocketNodeManager),
+		Topics: []common.Hash{
+			common.HexToHash("0x10101010"),
+			common.BytesToHash(
+				a.Bytes(),
+			),
+		},
+	})
+	et.ec.handleEvent(types.Log{
+		Address: common.HexToAddress(rocketMinipoolManager),
+		Topics: []common.Hash{
+			common.HexToHash("0x10101010"),
+			common.BytesToHash(
+				a.Bytes(),
+			),
+		},
+	})
+	et.ec.handleEvent(types.Log{
+		Address: common.HexToAddress(rocketDAONodeTrusted),
+		Topics: []common.Hash{
+			common.HexToHash("0x10101010"),
+			common.BytesToHash(
+				a.Bytes(),
+			),
+		},
+	})
+
+	et.ec.Stop()
+	err = <-errs
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestELSPChangeUnknownNode(t *testing.T) {
+	et := setup(t, &happyEC{t,
+		[]*mockNode{
+			&mockNode{
+				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
+				inSP:      true,
+				minipools: 1,
+			},
+			&mockNode{
+				addr:      common.HexToAddress("0x0000000000000000000002234567899876543210"),
+				inSP:      false,
+				minipools: 3,
+			},
+		},
+		[]*mockNode{
+			&mockNode{
+				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
+				inSP:      false,
+				minipools: 0,
+			},
+		},
+	})
+
+	if err := et.ec.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	errs := make(chan error)
+	go func() {
+		if err := et.ec.Start(); err != nil {
+			errs <- err
+		}
+		close(errs)
+	}()
+
+	// Wait for connection
+	<-et.ec.connected
+
+	// New node
+	a := common.HexToAddress("0x0f010f")
+
+	// Add a minipool
+	minipoolAddr := common.HexToAddress("0x1f101f")
+	et.ec.handleEvent(types.Log{
+		Address: common.HexToAddress(rocketMinipoolManager),
+		Topics: []common.Hash{
+			common.BytesToHash(
+				et.ec.minipoolLaunchedTopic.Bytes(),
+			),
+			common.BytesToHash(
+				minipoolAddr.Bytes(),
+			),
+			common.BytesToHash(
+				a.Bytes(),
+			),
+		},
+	})
+	pubkey := pubkeyFromMinipool(minipoolAddr)
+	h, err := hex.DecodeString(pubkey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = et.ec.GetRPInfo(rptypes.BytesToValidatorPubkey(h))
+	if err == nil {
+		t.Fatal("expected error")
+	} else if !strings.HasPrefix(err.Error(), fmt.Sprintf("node %s not found in cache despite pubkey", a.String())) {
+		t.Fatal("unexpected error", err)
+	}
+
+	// Opt into the SP
+	et.ec.handleEvent(types.Log{
+		Address: common.HexToAddress(rocketNodeManager),
+		Topics: []common.Hash{
+			common.BytesToHash(
+				et.ec.smoothingPoolStatusChangedTopic.Bytes(),
+			),
+			common.BytesToHash(
+				a.Bytes(),
+			),
+		},
+		Data: big.NewInt(1).Bytes(),
+	})
+
+	rpinfo, err := et.ec.GetRPInfo(rptypes.BytesToValidatorPubkey(h))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if rpinfo.ExpectedFeeRecipient.String() != common.HexToAddress(rocketSmoothingPool).String() {
+		t.Fatal("Expected new node to be in SP")
+	}
+
+	if rpinfo.NodeAddress.String() != a.String() {
+		t.Fatalf("rpinfo has unexpected node addr %s, expected %s", rpinfo.NodeAddress.String(), a.String())
+	}
+
+	et.ec.Stop()
+	err = <-errs
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestELHandleSubscriptionError(t *testing.T) {
+	et := setup(t, &happyEC{t,
+		[]*mockNode{
+			&mockNode{
+				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
+				inSP:      true,
+				minipools: 1,
+			},
+			&mockNode{
+				addr:      common.HexToAddress("0x0000000000000000000002234567899876543210"),
+				inSP:      false,
+				minipools: 3,
+			},
+		},
+		[]*mockNode{
+			&mockNode{
+				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
+				inSP:      false,
+				minipools: 0,
+			},
+		},
+	})
+
+	if err := et.ec.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	errs := make(chan error)
+	go func() {
+		if err := et.ec.Start(); err != nil {
+			errs <- err
+		}
+		close(errs)
+	}()
+
+	// Wait for connection
+	<-et.ec.connected
+
+	// New node
+	a := common.HexToAddress("0x0f010f")
+
+	// Simulate node register event
+	et.ec.handleEvent(types.Log{
+		Address: common.HexToAddress(rocketNodeManager),
+		Topics: []common.Hash{
+			common.BytesToHash(
+				et.ec.nodeRegisteredTopic.Bytes(),
+			),
+			common.BytesToHash(
+				a.Bytes(),
+			),
+		},
+	})
+
+	// Check membership
+	found := false
+	err := et.ec.ForEachNode(func(n common.Address) bool {
+		if bytes.Equal(n.Bytes(), a.Bytes()) {
+			found = true
+			return false
+		}
+		return true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !found {
+		t.Fatalf("didn't find %s in active node set", a.String())
+	}
+
+	// Force a reconnect
+	var sub *ethereum.Subscription
+	var headSub *ethereum.Subscription
+	et.ec.handleSubscriptionError(fmt.Errorf("fake error"), &sub, &headSub)
+
+	// Force a backfill
+	highestBlock := et.ec.cache.(*MapsCache).highestBlock
+	highestBlock.Sub(highestBlock, big.NewInt(20))
+	err = et.ec.backfillEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// One node should have been added
+	// Check membership
+	found = false
+	err = et.ec.ForEachNode(func(n common.Address) bool {
+		if bytes.Equal(common.HexToAddress(backfillNode).Bytes(), n.Bytes()) {
+			found = true
+			return false
+		}
+		return true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !found {
+		t.Fatalf("didn't find %s in active node set", a.String())
+	}
+
+	// Make sure we can exit normally
+	t.Cleanup(func() {
+		(*sub).Unsubscribe()
+		(*headSub).Unsubscribe()
+	})
 
 	et.ec.Stop()
 	err = <-errs

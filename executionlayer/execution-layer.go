@@ -194,19 +194,19 @@ func (e *CachingExecutionLayer) handleMinipoolEvent(event types.Log) {
 
 	// Grab its minipool (contract) address and use that to find its public key
 	minipoolAddr := common.BytesToAddress(event.Topics[1].Bytes())
-	minipoolDetails, err := minipool.GetMinipoolDetails(e.rp, minipoolAddr, nil)
+	pubkey, err := minipool.GetMinipoolPubkey(e.rp, minipoolAddr, nil)
 	if err != nil {
-		e.Logger.Warn("Error fetching minipool details for new minipools", zap.String("minipool", minipoolAddr.String()), zap.Error(err))
+		e.Logger.Warn("Error fetching minipool pubkey for new minipool", zap.String("minipool", minipoolAddr.String()), zap.Error(err))
 		return
 	}
 
 	// Finally, update the minipool index
-	err = e.cache.addMinipoolNode(minipoolDetails.Pubkey, nodeAddr)
+	err = e.cache.addMinipoolNode(pubkey, nodeAddr)
 	if err != nil {
 		e.Logger.Warn("Error updating minipool cache", zap.Error(err))
 	}
 	e.m.Counter("minipool_launch_received").Inc()
-	e.Logger.Info("Added new minipool", zap.String("pubkey", minipoolDetails.Pubkey.String()), zap.String("node", nodeAddr.String()))
+	e.Logger.Info("Added new minipool", zap.String("pubkey", pubkey.String()), zap.String("node", nodeAddr.String()))
 }
 
 func (e *CachingExecutionLayer) handleOdaoEvent(event types.Log) {
