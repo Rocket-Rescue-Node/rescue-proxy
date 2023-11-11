@@ -30,15 +30,20 @@ Usage of ./rescue-proxy:
         Whether to enable verbose logging
   -ec-url string
         URL to the execution client to use, eg, http://localhost:8545
+  -enable-solo-validators
+        Whether or not to allow solo validators access. (default true)
   -grpc-addr string
         Address on which to reply to gRPC requests
   -grpc-beacon-addr string
         Address to the beacon node to proxy for gRPC, eg, localhost:4000
+  -grpc-tls-cert-file string
+        Optional TLS Certificate for the gRPC host
+  -grpc-tls-key-file string
+        Optional TLS Key for the gRPC host
   -hmac-secret string
         The secret to use for HMAC (default "test-secret")
   -rocketstorage-addr string
         Address of the Rocket Storage contract. Defaults to mainnet (default "0x1d8f8f00cfa6758d7bE78336684788Fb0ee0Fa46")
-
 ```
 
   * The `-grpc` flags should only be used with a Prysm beacon node.
