@@ -2,13 +2,16 @@
 
 # Rescue-Proxy
 
-Rocket Pool Rescue Node's Rescue-Proxy is a custom reverse proxy meant to sit between a shared beacon node and its downstream users. It behaves like a normal reverse proxy with the following added features and protections:
+[Rocket Rescue Node](https://rescuenode.com)'s Rescue-Proxy is a custom reverse proxy meant to sit between a shared beacon node and its downstream users. It behaves like a normal reverse proxy with the following added features and protections:
 
 1. HMAC authentication via HTTP Basic Auth / GRPC headers
 1. Fee Recipient validation for Rocket Pool validator clients
 1. Credential expiration
-1. Robust caching for frequently accessed immutable chain data
-1. GRPC support for Prysm; HTTP support for Nimbus, Lighthouse, and Teku
+1. Robust caching for frequently accessed immutable and mutable chain data
+1. GRPC support for Prysm; HTTP support for Nimbus, Lighthouse, Lodestar, and Teku
+1. Fee Recipient validation for Solo staker validator clients
+1. Detailed logging and [metrics](https://status.rescuenode.com).
+1. A gRPC API allowing [rescue-api](https://github.com/Rocket-Rescue-Node/rescue-api) to see views of currently active solo and Rocket Pool node operators
 
 ## Usage
 
