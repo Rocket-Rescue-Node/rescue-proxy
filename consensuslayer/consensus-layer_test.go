@@ -72,7 +72,7 @@ func setup(t *testing.T, url *url.URL) ccTest {
 	t.Cleanup(cancel)
 
 	return ccTest{
-		ccl: NewCachingConsensusLayer(url, zaptest.NewLogger(t)),
+		ccl: NewCachingConsensusLayer(url, zaptest.NewLogger(t), false),
 		ctx: ctx,
 	}
 }

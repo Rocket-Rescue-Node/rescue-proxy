@@ -24,6 +24,7 @@ type Config struct {
 	CachePath            string
 	EnableSoloValidators bool
 	Debug                bool
+	ForceBNJSON          bool
 }
 
 func initFlags() *Config {
@@ -44,6 +45,7 @@ func initFlags() *Config {
 	authValidityWindowFlag := flag.String("auth-valid-for", "360h", "The duration after which a credential should be considered invalid, eg, 360h for 15 days")
 	cachePathFlag := flag.String("cache-path", "", "A path to cache EL data in. Leave blank to disable caching.")
 	enableSoloValidatorsFlag := flag.Bool("enable-solo-validators", true, "Whether or not to allow solo validators access.")
+	forceBNJSONFlag := flag.Bool("force-bn-json", false, "Disables SSZ in the BN.")
 
 	flag.Parse()
 
@@ -147,5 +149,6 @@ func initFlags() *Config {
 	config.RocketStorageAddr = *rocketStorageAddrFlag
 	config.EnableSoloValidators = *enableSoloValidatorsFlag
 	config.Debug = *debug
+	config.ForceBNJSON = *forceBNJSONFlag
 	return config
 }
