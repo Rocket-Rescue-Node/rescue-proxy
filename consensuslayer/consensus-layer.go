@@ -9,6 +9,7 @@ import (
 
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
 	"github.com/allegro/bigcache/v3"
+	"github.com/attestantio/go-eth2-client/api"
 	apiv1 "github.com/attestantio/go-eth2-client/api/v1"
 	"github.com/attestantio/go-eth2-client/http"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
@@ -40,6 +41,9 @@ type CachingConsensusLayer struct {
 	// Disconnects from the bn
 	disconnect func()
 
+	// Force attestantio client to use json
+	forceJSON bool
+
 	m             *metrics.MetricsRegistry
 	slotsPerEpoch uint64
 }
@@ -51,10 +55,11 @@ type ValidatorInfo struct {
 }
 
 // NewConsensusLayer creates a new consensus layer client using the provided url and logger
-func NewCachingConsensusLayer(bnURL *url.URL, logger *zap.Logger) *CachingConsensusLayer {
+func NewCachingConsensusLayer(bnURL *url.URL, logger *zap.Logger, forceJSON bool) *CachingConsensusLayer {
 	out := &CachingConsensusLayer{}
 	out.bnURL = bnURL
 	out.logger = logger
+	out.forceJSON = forceJSON
 	out.m = metrics.NewMetricsRegistry("consensus_layer")
 
 	return out
@@ -86,7 +91,8 @@ func (c *CachingConsensusLayer) Init(ctx context.Context) error {
 		// It's very chatty if we don't quiet it down
 		http.WithLogLevel(zerolog.WarnLevel),
 		// Set a sensible timeout. This is used as a maximum. Requests can set their own via ctx.
-		http.WithTimeout(5*time.Minute))
+		http.WithTimeout(5*time.Minute),
+		http.WithEnforceJSON(c.forceJSON))
 	if err != nil {
 		return err
 	}
@@ -164,11 +170,14 @@ func (c *CachingConsensusLayer) GetValidatorInfo(validatorIndices []string) (map
 	vCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	// Grab the index->validator map from the client if missing from the cache
-	resp, err := c.client.Validators(vCtx, "head", missing)
+	resp, err := c.client.Validators(vCtx, &api.ValidatorsOpts{
+		State:   "head",
+		Indices: missing,
+	})
 	if err != nil {
 		return nil, err
 	}
-	for index, validator := range resp {
+	for index, validator := range resp.Data {
 		strIndex := strconv.FormatUint(uint64(index), 10)
 		pubkey := rptypes.ValidatorPubkey(validator.Validator.PublicKey)
 		withdrawalCredentials := validator.Validator.WithdrawalCredentials
@@ -204,13 +213,13 @@ func (c *CachingConsensusLayer) GetValidators() ([]*apiv1.Validator, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	vmap, err := c.client.Validators(ctx, "finalized", nil)
+	vmap, err := c.client.Validators(ctx, &api.ValidatorsOpts{State: "finalized"})
 	if err != nil {
 		return nil, err
 	}
 
-	out := make([]*apiv1.Validator, 0, len(vmap))
-	for _, v := range vmap {
+	out := make([]*apiv1.Validator, 0, len(vmap.Data))
+	for _, v := range vmap.Data {
 		out = append(out, v)
 	}
 

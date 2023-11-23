@@ -108,7 +108,7 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 	}()
 
 	// Connect to and initialize the consensus layer
-	cl := consensuslayer.NewCachingConsensusLayer(s.Config.BeaconURL, s.Logger)
+	cl := consensuslayer.NewCachingConsensusLayer(s.Config.BeaconURL, s.Logger, s.Config.ForceBNJSON)
 	s.cl = cl
 	s.Logger.Info("Starting CL monitor")
 	// Consensus Layer is non-blocking/synchronous only.
