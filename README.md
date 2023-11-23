@@ -2,13 +2,16 @@
 
 # Rescue-Proxy
 
-Rocket Pool Rescue Node's Rescue-Proxy is a custom reverse proxy meant to sit between a shared beacon node and its downstream users. It behaves like a normal reverse proxy with the following added features and protections:
+[Rocket Rescue Node](https://rescuenode.com)'s Rescue-Proxy is a custom reverse proxy meant to sit between a shared beacon node and its downstream users. It behaves like a normal reverse proxy with the following added features and protections:
 
 1. HMAC authentication via HTTP Basic Auth / GRPC headers
 1. Fee Recipient validation for Rocket Pool validator clients
 1. Credential expiration
-1. Robust caching for frequently accessed immutable chain data
-1. GRPC support for Prysm; HTTP support for Nimbus, Lighthouse, and Teku
+1. Robust caching for frequently accessed immutable and mutable chain data
+1. GRPC support for Prysm; HTTP support for Nimbus, Lighthouse, Lodestar, and Teku
+1. Fee Recipient validation for Solo staker validator clients
+1. Detailed logging and [metrics](https://status.rescuenode.com).
+1. A gRPC API allowing [rescue-api](https://github.com/Rocket-Rescue-Node/rescue-api) to see views of currently active solo and Rocket Pool node operators
 
 ## Usage
 
@@ -30,15 +33,20 @@ Usage of ./rescue-proxy:
         Whether to enable verbose logging
   -ec-url string
         URL to the execution client to use, eg, http://localhost:8545
+  -enable-solo-validators
+        Whether or not to allow solo validators access. (default true)
   -grpc-addr string
         Address on which to reply to gRPC requests
   -grpc-beacon-addr string
         Address to the beacon node to proxy for gRPC, eg, localhost:4000
+  -grpc-tls-cert-file string
+        Optional TLS Certificate for the gRPC host
+  -grpc-tls-key-file string
+        Optional TLS Key for the gRPC host
   -hmac-secret string
         The secret to use for HMAC (default "test-secret")
   -rocketstorage-addr string
         Address of the Rocket Storage contract. Defaults to mainnet (default "0x1d8f8f00cfa6758d7bE78336684788Fb0ee0Fa46")
-
 ```
 
   * The `-grpc` flags should only be used with a Prysm beacon node.

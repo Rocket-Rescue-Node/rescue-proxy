@@ -142,3 +142,11 @@ func InitEpochMetrics() {
 	registry.GaugeFunc("current_idx", CurrentIdx)
 	registry.GaugeFunc("previous_idx", PreviousIdx)
 }
+
+func DeinitEpochMetrics() {
+	if registry == nil {
+		return
+	}
+	registry.UnregisterAll()
+	registry = nil
+}

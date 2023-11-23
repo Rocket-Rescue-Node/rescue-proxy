@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 
 	"go.uber.org/zap"
@@ -29,7 +28,7 @@ func main() {
 
 	logger := initLogger(config)
 	defer func() {
-		logger.Debug("Flushing logs")
+		logger.Info("rescue-proxy shutdown completed, flushing logs")
 		_ = logger.Sync()
 	}()
 
@@ -51,5 +50,4 @@ func main() {
 		logger.Panic("error stopping service", zap.Error(err))
 	}
 
-	fmt.Println("rescue-proxy shutdown completed")
 }
