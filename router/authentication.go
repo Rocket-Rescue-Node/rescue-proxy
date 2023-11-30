@@ -6,16 +6,21 @@ import (
 	"time"
 
 	"github.com/Rocket-Pool-Rescue-Node/credentials"
+	"github.com/Rocket-Pool-Rescue-Node/credentials/pb"
 	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
 	gbp "github.com/Rocket-Rescue-Node/guarded-beacon-proxy"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
+var validityWindow = map[credentials.OperatorType]time.Duration{
+	pb.OperatorType_OT_SOLO:       time.Hour * 24 * 10,
+	pb.OperatorType_OT_ROCKETPOOL: time.Hour * 24 * 15,
+}
+
 type auth struct {
-	metricsRegistry    *metrics.MetricsRegistry
-	authValidityWindow time.Duration
-	cm                 *credentials.CredentialManager
+	metricsRegistry *metrics.MetricsRegistry
+	cm              *credentials.CredentialManager
 }
 
 type authenticationError struct {
@@ -86,7 +91,8 @@ func (a *auth) authenticate(username, password string) (*credentials.Authenticat
 	// Grab the timestamp and make sure the credential is recent enough
 	ts := time.Unix(ac.Credential.Timestamp, 0)
 	now := time.Now()
-	if ts.Before(now) && now.Sub(ts) > a.authValidityWindow {
+	authValidityWindow := validityWindow[ac.Credential.OperatorType]
+	if ts.Before(now) && now.Sub(ts) > authValidityWindow {
 		a.metricsRegistry.Counter("expired").Inc()
 		return nil, expired()
 	}
@@ -95,10 +101,9 @@ func (a *auth) authenticate(username, password string) (*credentials.Authenticat
 	return &ac, nil
 }
 
-func initAuth(credentialManager *credentials.CredentialManager, validityWindow time.Duration) *auth {
+func initAuth(credentialManager *credentials.CredentialManager) *auth {
 	out := new(auth)
 
-	out.authValidityWindow = validityWindow
 	out.cm = credentialManager
 	out.metricsRegistry = metrics.NewMetricsRegistry("authentication")
 

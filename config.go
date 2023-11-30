@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"time"
 )
 
 type Config struct {
@@ -20,7 +19,6 @@ type Config struct {
 	GRPCTLSKeyFile       string
 	RocketStorageAddr    string
 	CredentialSecret     string
-	AuthValidityWindow   time.Duration
 	CachePath            string
 	EnableSoloValidators bool
 	Debug                bool
@@ -42,7 +40,6 @@ func initFlags() *Config {
 	rocketStorageAddrFlag := flag.String("rocketstorage-addr", "0x1d8f8f00cfa6758d7bE78336684788Fb0ee0Fa46", "Address of the Rocket Storage contract. Defaults to mainnet")
 	debug := flag.Bool("debug", false, "Whether to enable verbose logging")
 	credentialSecretFlag := flag.String("hmac-secret", "test-secret", "The secret to use for HMAC")
-	authValidityWindowFlag := flag.String("auth-valid-for", "360h", "The duration after which a credential should be considered invalid, eg, 360h for 15 days")
 	cachePathFlag := flag.String("cache-path", "", "A path to cache EL data in. Leave blank to disable caching.")
 	enableSoloValidatorsFlag := flag.Bool("enable-solo-validators", true, "Whether or not to allow solo validators access.")
 	forceBNJSONFlag := flag.Bool("force-bn-json", false, "Disables SSZ in the BN.")
@@ -112,19 +109,6 @@ func initFlags() *Config {
 
 	if *credentialSecretFlag == "" {
 		fmt.Fprintf(os.Stderr, "Invalid -hmac-secret:\n")
-		os.Exit(1)
-		return nil
-	}
-
-	if *authValidityWindowFlag == "" {
-		fmt.Fprintf(os.Stderr, "Invalid -auth-valid-for:\n")
-		os.Exit(1)
-		return nil
-	}
-
-	config.AuthValidityWindow, err = time.ParseDuration(*authValidityWindowFlag)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Invalid -auth-valid-for:\n%v\n", err)
 		os.Exit(1)
 		return nil
 	}

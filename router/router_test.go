@@ -81,7 +81,6 @@ func setup(t *testing.T, errs chan error) routerTest {
 		EL:                   el,
 		Logger:               zaptest.NewLogger(t),
 		CredentialSecret:     "test",
-		AuthValidityWindow:   time.Hour,
 		EnableSoloValidators: true,
 	}
 	pr.Init()

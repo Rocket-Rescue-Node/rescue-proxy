@@ -22,7 +22,7 @@ func setupAuthTest(t *testing.T) *auth {
 	t.Cleanup(metrics.Deinit)
 
 	cm := credentials.NewCredentialManager(sha256.New, []byte("test"))
-	a := initAuth(cm, time.Minute*5)
+	a := initAuth(cm)
 	return a
 }
 
@@ -53,7 +53,7 @@ func TestExpiredCredential(t *testing.T) {
 	a := setupAuthTest(t)
 
 	// Create a valid credential
-	cred, err := a.cm.Create(time.Now().Add(-time.Hour), nodeId, pb.OperatorType_OT_ROCKETPOOL)
+	cred, err := a.cm.Create(time.Now().Add(-(time.Hour * 24 * 30)), nodeId, pb.OperatorType_OT_ROCKETPOOL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestErrorMessages(t *testing.T) {
 	a := setupAuthTest(t)
 
 	// Create an expired credential
-	cred, err := a.cm.Create(time.Now().Add(-time.Hour), nodeId, pb.OperatorType_OT_ROCKETPOOL)
+	cred, err := a.cm.Create(time.Now().Add(-(time.Hour * 24 * 30)), nodeId, pb.OperatorType_OT_ROCKETPOOL)
 	if err != nil {
 		t.Fatal(err)
 	}
