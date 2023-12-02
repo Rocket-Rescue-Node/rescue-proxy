@@ -134,7 +134,6 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 		Logger:               s.Logger,
 		EL:                   s.el,
 		CL:                   s.cl,
-		AuthValidityWindow:   s.Config.AuthValidityWindow,
 		EnableSoloValidators: s.Config.EnableSoloValidators,
 		CredentialSecret:     s.Config.CredentialSecret,
 	}

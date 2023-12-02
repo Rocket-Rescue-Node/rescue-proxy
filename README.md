@@ -23,8 +23,6 @@ Usage of ./rescue-proxy:
         Address on which to reply to admin/metrics requests (default "0.0.0.0:8000")
   -api-addr string
         Address on which to reply to gRPC API requests (default "0.0.0.0:8080")
-  -auth-valid-for string
-        The duration after which a credential should be considered invalid, eg, 360h for 15 days (default "360h")
   -bn-url string
         URL to the beacon node to proxy, eg, http://localhost:5052
   -cache-path string

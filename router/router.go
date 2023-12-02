@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/Rocket-Pool-Rescue-Node/credentials"
 	"github.com/Rocket-Pool-Rescue-Node/credentials/pb"
@@ -34,7 +33,6 @@ type ProxyRouter struct {
 	EL                   executionlayer.ExecutionLayer
 	CL                   consensuslayer.ConsensusLayer
 	CredentialSecret     string
-	AuthValidityWindow   time.Duration
 	EnableSoloValidators bool
 
 	gbp  *gbp.GuardedBeaconProxy
@@ -355,7 +353,6 @@ func (pr *ProxyRouter) Init() {
 			sha256.New,
 			[]byte(pr.CredentialSecret),
 		),
-		pr.AuthValidityWindow,
 	)
 
 	// Create the reverse proxy.
