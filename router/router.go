@@ -272,6 +272,26 @@ func (pr *ProxyRouter) registerValidatorGuard(validators gbp.RegisterValidatorRe
 	return gbp.Allowed, nil
 }
 
+// https://github.com/ChainSafe/lodestar/issues/6154
+func (pr *ProxyRouter) urlDecode(username, password string) (string, string) {
+
+	u, err := url.QueryUnescape(username)
+	if err != nil {
+		u = username
+	}
+
+	p, err := url.QueryUnescape(password)
+	if err != nil {
+		p = password
+	}
+
+	if username != u || password != p {
+		pr.m.Counter("url_decoded").Inc()
+	}
+
+	return u, p
+}
+
 // Adds authentication to any handler.
 func (pr *ProxyRouter) authenticate(r *http.Request) (gbp.AuthenticationStatus, context.Context, error) {
 
@@ -283,6 +303,9 @@ func (pr *ProxyRouter) authenticate(r *http.Request) (gbp.AuthenticationStatus, 
 		pr.Logger.Debug("Received request with no credentials on guarded endpoint")
 		return gbp.Unauthorized, nil, fmt.Errorf("missing credentials")
 	}
+
+	// https://github.com/ChainSafe/lodestar/issues/6154
+	username, password = pr.urlDecode(username, password)
 
 	ac, err := pr.auth.authenticate(username, password)
 	if err != nil {
