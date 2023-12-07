@@ -1,8 +1,8 @@
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/DataDog/zstd v1.5.2 h1:vUG4lAyuPCXO0TLbXvPv7EB7cNK1QV/luu55UHLrrn8=
-github.com/Rocket-Pool-Rescue-Node/credentials v0.0.0-20230909140515-dbe2112cbe11 h1:T+PhZP0GdaIPJg/5rxvcob2LQHqwzCZJa4dealfEiL8=
-github.com/Rocket-Pool-Rescue-Node/credentials v0.0.0-20230909140515-dbe2112cbe11/go.mod h1:a8WDDCTOY1g5tQG9myB5UMEg+4tCLAtVm++Qm5Ki6iA=
+github.com/Rocket-Rescue-Node/credentials v0.0.0-20231207141737-f74aa860bd92 h1:gBy+0iS8TdBd+ktjszVcWE6tO8RbaN6HvDCn3JQ2wMM=
+github.com/Rocket-Rescue-Node/credentials v0.0.0-20231207141737-f74aa860bd92/go.mod h1:wA9Q8cJW8BaGiyFVV6KuWuM9lvr4WmniHBtDdiTw5ns=
 github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.1 h1:MyGF9V64MATdqFI2nri8u1PWgGPOlCxqkxfiN0CgAiY=
 github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.1/go.mod h1:p4CMEZjb+V4hI6vaAoOTplAi6pZLHCtnw163NdMztgo=
 github.com/VictoriaMetrics/fastcache v1.12.0 h1:vnVi/y9yKDcD9akmc4NqAoqgQhJrOwUF+j9LTgn4QDE=

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Rocket-Pool-Rescue-Node/credentials"
-	"github.com/Rocket-Pool-Rescue-Node/credentials/pb"
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
+	"github.com/Rocket-Rescue-Node/credentials"
+	"github.com/Rocket-Rescue-Node/credentials/pb"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
 )
 
 var nodeId = []byte{0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99,

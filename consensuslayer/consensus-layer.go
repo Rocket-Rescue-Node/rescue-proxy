@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
 	"github.com/allegro/bigcache/v3"
 	"github.com/attestantio/go-eth2-client/api"
 	apiv1 "github.com/attestantio/go-eth2-client/api/v1"

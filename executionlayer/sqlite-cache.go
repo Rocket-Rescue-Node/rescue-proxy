@@ -7,7 +7,7 @@ import (
 	"math/big"
 	"os"
 
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
 	"github.com/ethereum/go-ethereum/common"
 	driver "github.com/mattn/go-sqlite3"
 	rptypes "github.com/rocket-pool/rocketpool-go/types"

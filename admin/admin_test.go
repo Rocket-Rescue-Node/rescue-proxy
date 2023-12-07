@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
 )
 
 func setup(t *testing.T) context.Context {

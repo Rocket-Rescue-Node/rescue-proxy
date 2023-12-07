@@ -8,11 +8,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/admin"
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/api"
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/router"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/admin"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/api"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/consensuslayer"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/router"
 	"go.uber.org/zap"
 )
 

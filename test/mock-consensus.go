@@ -12,7 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	rptypes "github.com/rocket-pool/rocketpool-go/types"
 
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/consensuslayer"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/consensuslayer"
 )
 
 type MockConsensusLayer struct {

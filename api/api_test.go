@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/pb"
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/test"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/pb"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/test"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"google.golang.org/grpc"

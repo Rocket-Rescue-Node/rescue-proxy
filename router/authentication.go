@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Rocket-Pool-Rescue-Node/credentials"
-	"github.com/Rocket-Pool-Rescue-Node/credentials/pb"
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
+	"github.com/Rocket-Rescue-Node/credentials"
+	"github.com/Rocket-Rescue-Node/credentials/pb"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
 	gbp "github.com/Rocket-Rescue-Node/guarded-beacon-proxy"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

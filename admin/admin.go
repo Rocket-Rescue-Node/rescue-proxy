@@ -4,7 +4,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
 	"github.com/gorilla/mux"
 )
 

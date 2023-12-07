@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/pb"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"

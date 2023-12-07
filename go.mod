@@ -1,9 +1,9 @@
-module github.com/Rocket-Pool-Rescue-Node/rescue-proxy
+module github.com/Rocket-Rescue-Node/rescue-proxy
 
 go 1.20
 
 require (
-	github.com/Rocket-Pool-Rescue-Node/credentials v0.0.0-20230909140515-dbe2112cbe11
+	github.com/Rocket-Rescue-Node/credentials v0.0.0-20231207141737-f74aa860bd92
 	github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.1
 	github.com/allegro/bigcache/v3 v3.1.0
 	github.com/attestantio/go-eth2-client v0.19.5

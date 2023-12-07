@@ -1,4 +1,4 @@
-[![Rescue Node Proxy](https://github.com/Rocket-Pool-Rescue-Node/rescue-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/Rocket-Pool-Rescue-Node/rescue-proxy/actions/workflows/tests.yml) [![golangci-lint](https://github.com/Rocket-Pool-Rescue-Node/rescue-proxy/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/Rocket-Pool-Rescue-Node/rescue-proxy/actions/workflows/golangci-lint.yml) [![GoReportCard](https://goreportcard.com/badge/github.com/Rocket-Pool-Rescue-Node/rescue-proxy)](https://goreportcard.com/report/github.com/Rocket-Pool-Rescue-Node/rescue-proxy)
+[![Rescue Node Proxy](https://github.com/Rocket-Rescue-Node/rescue-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/Rocket-Rescue-Node/rescue-proxy/actions/workflows/tests.yml) [![golangci-lint](https://github.com/Rocket-Rescue-Node/rescue-proxy/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/Rocket-Rescue-Node/rescue-proxy/actions/workflows/golangci-lint.yml) [![GoReportCard](https://goreportcard.com/badge/github.com/Rocket-Rescue-Node/rescue-proxy)](https://goreportcard.com/report/github.com/Rocket-Rescue-Node/rescue-proxy)
 
 # Rescue-Proxy
 
@@ -50,7 +50,7 @@ Usage of ./rescue-proxy:
   * The `-grpc` flags should only be used with a Prysm beacon node.
     * The user must pass `--grpc-headers=rprnauth=USERNAME:PASSWORD` in this case.
   * The user should use Basic Auth for access (e.g. Beacon Node URL `http://USERNAME:PASSWORD@0.0.0.0:80`)
-  * `-hmac-secret` must match the one used with the [Credentials](https://github.com/Rocket-Pool-Rescue-Node/credentials) library that generated the username, password
+  * `-hmac-secret` must match the one used with the [Credentials](https://github.com/Rocket-Rescue-Node/credentials) library that generated the username, password
 
 ## Contributing
 

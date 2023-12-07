@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Rocket-Pool-Rescue-Node/credentials/pb"
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/metrics"
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/test"
+	"github.com/Rocket-Rescue-Node/credentials/pb"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/test"
 	gbp "github.com/Rocket-Rescue-Node/guarded-beacon-proxy"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ethereum/go-ethereum/common"

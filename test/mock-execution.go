@@ -8,7 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	rptypes "github.com/rocket-pool/rocketpool-go/types"
 
-	"github.com/Rocket-Pool-Rescue-Node/rescue-proxy/executionlayer"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer"
 )
 
 type MockExecutionLayer struct {
