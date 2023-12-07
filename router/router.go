@@ -12,10 +12,10 @@ import (
 
 	"github.com/Rocket-Rescue-Node/credentials"
 	"github.com/Rocket-Rescue-Node/credentials/pb"
+	gbp "github.com/Rocket-Rescue-Node/guarded-beacon-proxy"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
-	gbp "github.com/Rocket-Rescue-Node/guarded-beacon-proxy"
 	"github.com/ethereum/go-ethereum/common"
 	rptypes "github.com/rocket-pool/rocketpool-go/types"
 	"go.uber.org/zap"

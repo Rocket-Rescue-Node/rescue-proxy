@@ -16,9 +16,9 @@ import (
 	"time"
 
 	"github.com/Rocket-Rescue-Node/credentials/pb"
+	gbp "github.com/Rocket-Rescue-Node/guarded-beacon-proxy"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/test"
-	gbp "github.com/Rocket-Rescue-Node/guarded-beacon-proxy"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ethereum/go-ethereum/common"
 	rptypes "github.com/rocket-pool/rocketpool-go/types"
