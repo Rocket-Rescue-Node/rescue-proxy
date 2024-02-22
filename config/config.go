@@ -1,11 +1,32 @@
-package main
+package config
 
 import (
 	"flag"
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 )
+
+type CredentialSecrets [][]byte
+
+func (c *CredentialSecrets) String() string {
+	if c == nil {
+		return ""
+	}
+
+	out := make([]string, 0, len(*c))
+	for _, bytes := range *c {
+		out = append(out, string(bytes))
+	}
+
+	return strings.Join(out, ",")
+}
+
+func (c *CredentialSecrets) Set(arg string) error {
+	*c = append(*c, []byte(arg))
+	return nil
+}
 
 type Config struct {
 	BeaconURL            *url.URL
@@ -18,15 +39,18 @@ type Config struct {
 	GRPCTLSCertFile      string
 	GRPCTLSKeyFile       string
 	RocketStorageAddr    string
-	CredentialSecret     string
+	CredentialSecrets    CredentialSecrets
 	CachePath            string
 	EnableSoloValidators bool
 	Debug                bool
 	ForceBNJSON          bool
 }
 
-func initFlags() *Config {
+func InitFlags() *Config {
 	config := new(Config)
+
+	credentialSecrets := make(CredentialSecrets, 0)
+	flag.Var(&credentialSecrets, "hmac-secret", "The secret to use for HMAC. Defaults to 'test-secret'")
 
 	bnURLFlag := flag.String("bn-url", "", "URL to the beacon node to proxy, eg, http://localhost:5052")
 	ecURLFlag := flag.String("ec-url", "", "URL to the execution client to use, eg, http://localhost:8545")
@@ -39,12 +63,15 @@ func initFlags() *Config {
 	grpcTLSKeyFileFlag := flag.String("grpc-tls-key-file", "", "Optional TLS Key for the gRPC host")
 	rocketStorageAddrFlag := flag.String("rocketstorage-addr", "0x1d8f8f00cfa6758d7bE78336684788Fb0ee0Fa46", "Address of the Rocket Storage contract. Defaults to mainnet")
 	debug := flag.Bool("debug", false, "Whether to enable verbose logging")
-	credentialSecretFlag := flag.String("hmac-secret", "test-secret", "The secret to use for HMAC")
 	cachePathFlag := flag.String("cache-path", "", "A path to cache EL data in. Leave blank to disable caching.")
 	enableSoloValidatorsFlag := flag.Bool("enable-solo-validators", true, "Whether or not to allow solo validators access.")
 	forceBNJSONFlag := flag.Bool("force-bn-json", false, "Disables SSZ in the BN.")
 
 	flag.Parse()
+
+	if len(credentialSecrets) == 0 {
+		credentialSecrets = CredentialSecrets{[]byte("test-secret")}
+	}
 
 	if *bnURLFlag == "" {
 		fmt.Fprintf(os.Stderr, "Invalid -bn-url:\n")
@@ -107,12 +134,6 @@ func initFlags() *Config {
 		return nil
 	}
 
-	if *credentialSecretFlag == "" {
-		fmt.Fprintf(os.Stderr, "Invalid -hmac-secret:\n")
-		os.Exit(1)
-		return nil
-	}
-
 	config.GRPCTLSCertFile = *grpcTLSCertFileFlag
 	config.GRPCTLSKeyFile = *grpcTLSKeyFileFlag
 	if (config.GRPCTLSCertFile == "" && config.GRPCTLSKeyFile != "") ||
@@ -125,7 +146,7 @@ func initFlags() *Config {
 
 	config.AdminListenAddr = *adminAddrURLFlag
 	config.APIListenAddr = *apiAddrURLFlag
-	config.CredentialSecret = *credentialSecretFlag
+	config.CredentialSecrets = credentialSecrets
 	config.CachePath = *cachePathFlag
 	config.GRPCListenAddr = *grpcAddrFlag
 	config.GRPCBeaconAddr = *grpcBeaconAddrFlag

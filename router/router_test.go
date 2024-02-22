@@ -15,8 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Rocket-Rescue-Node/credentials"
 	"github.com/Rocket-Rescue-Node/credentials/pb"
 	gbp "github.com/Rocket-Rescue-Node/guarded-beacon-proxy"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/config"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/test"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
@@ -80,7 +82,7 @@ func setup(t *testing.T, errs chan error) routerTest {
 		CL:                   cl,
 		EL:                   el,
 		Logger:               zaptest.NewLogger(t),
-		CredentialSecret:     "test",
+		CredentialSecrets:    config.CredentialSecrets{[]byte("test"), []byte("test2")},
 		EnableSoloValidators: true,
 	}
 	pr.Init()
@@ -109,7 +111,7 @@ func (rt routerTest) validAuth(t *testing.T, solo bool) (string, string) {
 		ot = pb.OperatorType_OT_SOLO
 	}
 
-	cred, err := rt.pr.auth.cm.Create(time.Now(), addr, ot)
+	cred, err := rt.pr.auth.credentialManager.Create(time.Now(), addr, ot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,6 +190,58 @@ func TestRouterGoodAuth(t *testing.T) {
 	go rt.start()
 
 	username, pw := rt.validAuth(t, false)
+	resp, err := http.Get("http://" + username + ":" + pw + "@" + rt.pr.Addr)
+	if err != nil {
+		t.Fatal("unexpected error", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatal("unexpected status code", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(body)) != responseString {
+		t.Fatal("unexpected response", string(body))
+	}
+
+	rt.pr.Stop(rt.ctx)
+
+	err = <-errs
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRouterGoodAuthPartner(t *testing.T) {
+	var addr []byte
+	errs := make(chan error)
+	rt := setup(t, errs)
+
+	go rt.start()
+	err := rt.pr.EL.(*test.MockExecutionLayer).ForEachNode(func(a common.Address) bool {
+		addr = a.Bytes()
+		return false
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ot := pb.OperatorType_OT_ROCKETPOOL
+
+	cm := credentials.NewCredentialManager([]byte("test2"))
+	cred, err := cm.Create(time.Now(), addr, ot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	username := cred.Base64URLEncodeUsername()
+	pw, err := cred.Base64URLEncodePassword()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	resp, err := http.Get("http://" + username + ":" + pw + "@" + rt.pr.Addr)
 	if err != nil {
 		t.Fatal("unexpected error", err)

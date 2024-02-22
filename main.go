@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 
+	"github.com/Rocket-Rescue-Node/rescue-proxy/config"
 	"go.uber.org/zap"
 )
 
@@ -21,7 +22,7 @@ func loop(signalChan chan bool, errs chan error) error {
 func main() {
 
 	// Initialize config
-	config := initFlags()
+	config := config.InitFlags()
 
 	// Create the service
 	service := NewService(config)
