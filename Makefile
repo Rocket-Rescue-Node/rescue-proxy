@@ -1,4 +1,4 @@
-VERSION = v1.0.2
+VERSION = v1.1.0
 
 SOURCES := $(shell find $(SOURCEDIR) -name '*.go')
 PROTO_IN := proto

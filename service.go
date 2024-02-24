@@ -10,6 +10,7 @@ import (
 
 	"github.com/Rocket-Rescue-Node/rescue-proxy/admin"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/api"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/config"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/router"
@@ -25,7 +26,7 @@ type Service struct {
 	// A [zap.Logger] to use for logging. If not provided, one will be initialized from the [Config]
 	Logger *zap.Logger
 	// A [Config] to use for initialization.
-	Config *Config
+	Config *config.Config
 
 	// Sub-services
 	admin *admin.AdminApi
@@ -39,7 +40,7 @@ type Service struct {
 }
 
 // NewService creates a [Service] from a given [Config].func NewService(config *Config) *Service {
-func NewService(config *Config) *Service {
+func NewService(config *config.Config) *Service {
 	return &Service{
 		Config: config,
 	}
@@ -135,7 +136,7 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 		EL:                   s.el,
 		CL:                   s.cl,
 		EnableSoloValidators: s.Config.EnableSoloValidators,
-		CredentialSecret:     s.Config.CredentialSecret,
+		CredentialSecrets:    s.Config.CredentialSecrets,
 	}
 	s.r.Init()
 	// Spin up the rest of the servers on different goroutines, since they block.

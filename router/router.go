@@ -3,7 +3,6 @@ package router
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"net"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"github.com/Rocket-Rescue-Node/credentials"
 	"github.com/Rocket-Rescue-Node/credentials/pb"
 	gbp "github.com/Rocket-Rescue-Node/guarded-beacon-proxy"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/config"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
@@ -32,7 +32,7 @@ type ProxyRouter struct {
 	Logger               *zap.Logger
 	EL                   executionlayer.ExecutionLayer
 	CL                   consensuslayer.ConsensusLayer
-	CredentialSecret     string
+	CredentialSecrets    config.CredentialSecrets
 	EnableSoloValidators bool
 
 	gbp  *gbp.GuardedBeaconProxy
@@ -314,6 +314,17 @@ func (pr *ProxyRouter) authenticate(r *http.Request) (gbp.AuthenticationStatus, 
 		return err.gbpStatus, nil, err
 	}
 
+	if ac.id.Equals(pr.auth.credentialManager.ID()) {
+		pr.m.Counter("own_hmac").Inc()
+	} else {
+		pr.Logger.Debug(
+			"authenticated request from partner cluster",
+			zap.Binary("node_id", ac.Credential.NodeId),
+			zap.String("secret", ac.id.String()),
+		)
+		pr.m.Counter("partner_hmac").Inc()
+	}
+
 	// If auth succeeds:
 	if ac.Credential.OperatorType == pb.OperatorType_OT_ROCKETPOOL {
 		pr.m.Counter("auth_ok").Inc()
@@ -371,11 +382,17 @@ func (pr *ProxyRouter) grpcAuthenticate(md metadata.MD) (gbp.AuthenticationStatu
 
 func (pr *ProxyRouter) Init() {
 	// Initialize the auth handler
-	pr.auth = initAuth(
-		credentials.NewCredentialManager(
-			sha256.New,
-			[]byte(pr.CredentialSecret),
-		),
+	pr.auth = initAuth(pr.CredentialSecrets)
+	for _, id := range pr.auth.credentialManager.PartnerIDs() {
+		pr.Logger.Info(
+			"Loaded partner secret",
+			zap.String("id", id.String()),
+		)
+	}
+	pr.Logger.Info(
+		"Initialized HMAC credentials",
+		zap.Int("num", len(pr.CredentialSecrets)),
+		zap.String("primary id", pr.auth.credentialManager.ID().String()),
 	)
 
 	// Create the reverse proxy.

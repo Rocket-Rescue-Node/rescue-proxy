@@ -43,6 +43,7 @@ Usage of ./rescue-proxy:
         Optional TLS Key for the gRPC host
   -hmac-secret string
         The secret to use for HMAC (default "test-secret")
+        Can be passed multiple times. Credentials are considered valid if they were generated with any supplied secret.
   -rocketstorage-addr string
         Address of the Rocket Storage contract. Defaults to mainnet (default "0x1d8f8f00cfa6758d7bE78336684788Fb0ee0Fa46")
 ```

@@ -8,6 +8,7 @@ import (
 	"github.com/Rocket-Rescue-Node/credentials"
 	"github.com/Rocket-Rescue-Node/credentials/pb"
 	gbp "github.com/Rocket-Rescue-Node/guarded-beacon-proxy"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/config"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -19,8 +20,8 @@ var validityWindow = map[credentials.OperatorType]time.Duration{
 }
 
 type auth struct {
-	metricsRegistry *metrics.MetricsRegistry
-	cm              *credentials.CredentialManager
+	metricsRegistry   *metrics.MetricsRegistry
+	credentialManager *credentials.CredentialManager
 }
 
 type authenticationError struct {
@@ -65,10 +66,16 @@ func expired() *authenticationError {
 	}
 }
 
+type authSuccess struct {
+	*credentials.AuthenticatedCredential
+	id      *credentials.ID
+	partner bool
+}
+
 // authenticate returns nil if the username/password are valid and current
 // username/password must be base64url encoded
 // otherwise, it returns an authentication error
-func (a *auth) authenticate(username, password string) (*credentials.AuthenticatedCredential, *authenticationError) {
+func (a *auth) authenticate(username, password string) (*authSuccess, *authenticationError) {
 
 	ac := credentials.AuthenticatedCredential{}
 	if len(username) == 0 || len(password) == 0 {
@@ -82,7 +89,7 @@ func (a *auth) authenticate(username, password string) (*credentials.Authenticat
 		return nil, malformed(err)
 	}
 
-	err = a.cm.Verify(&ac)
+	secretId, err := a.credentialManager.Verify(&ac)
 	if err != nil {
 		a.metricsRegistry.Counter("invalid").Inc()
 		return nil, invalid(err)
@@ -98,14 +105,18 @@ func (a *auth) authenticate(username, password string) (*credentials.Authenticat
 	}
 
 	a.metricsRegistry.Counter("valid").Inc()
-	return &ac, nil
+	return &authSuccess{
+		partner:                 !secretId.Equals(a.credentialManager.ID()),
+		AuthenticatedCredential: &ac,
+		id:                      secretId,
+	}, nil
 }
 
-func initAuth(credentialManager *credentials.CredentialManager) *auth {
+func initAuth(secrets config.CredentialSecrets) *auth {
 	out := new(auth)
 
-	out.cm = credentialManager
 	out.metricsRegistry = metrics.NewMetricsRegistry("authentication")
+	out.credentialManager = credentials.NewCredentialManager(secrets[0], secrets[1:]...)
 
 	return out
 }
