@@ -6,6 +6,8 @@ github.com/Rocket-Rescue-Node/credentials v0.0.0-20231207141737-f74aa860bd92 h1:
 github.com/Rocket-Rescue-Node/credentials v0.0.0-20231207141737-f74aa860bd92/go.mod h1:wA9Q8cJW8BaGiyFVV6KuWuM9lvr4WmniHBtDdiTw5ns=
 github.com/Rocket-Rescue-Node/credentials v0.0.0-20240224164106-ca942dd8ec6d h1:1SRfuNknhlbDY/Ln/ZQsGaF25MEm2DWKZeQTLYJfMqM=
 github.com/Rocket-Rescue-Node/credentials v0.0.0-20240224164106-ca942dd8ec6d/go.mod h1:rInGId8V6ezrcyrNTeuWkfcSKD9fF97Mguso/x7ahJs=
+github.com/Rocket-Rescue-Node/credentials v0.0.0-20240224174210-626742fc699e h1:fGJ5R5lOqdyGfTL8HcTiCFrNT6hyvjDR5ROIaqIHGlk=
+github.com/Rocket-Rescue-Node/credentials v0.0.0-20240224174210-626742fc699e/go.mod h1:rInGId8V6ezrcyrNTeuWkfcSKD9fF97Mguso/x7ahJs=
 github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.1 h1:MyGF9V64MATdqFI2nri8u1PWgGPOlCxqkxfiN0CgAiY=
 github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.1/go.mod h1:p4CMEZjb+V4hI6vaAoOTplAi6pZLHCtnw163NdMztgo=
 github.com/VictoriaMetrics/fastcache v1.12.0 h1:vnVi/y9yKDcD9akmc4NqAoqgQhJrOwUF+j9LTgn4QDE=
