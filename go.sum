@@ -2,10 +2,6 @@ cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMT
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/DataDog/zstd v1.5.2 h1:vUG4lAyuPCXO0TLbXvPv7EB7cNK1QV/luu55UHLrrn8=
 github.com/DataDog/zstd v1.5.2/go.mod h1:g4AWEaM3yOg3HYfnJ3YIawPnVdXJh9QME85blwSAmyw=
-github.com/Rocket-Rescue-Node/credentials v0.0.0-20231207141737-f74aa860bd92 h1:gBy+0iS8TdBd+ktjszVcWE6tO8RbaN6HvDCn3JQ2wMM=
-github.com/Rocket-Rescue-Node/credentials v0.0.0-20231207141737-f74aa860bd92/go.mod h1:wA9Q8cJW8BaGiyFVV6KuWuM9lvr4WmniHBtDdiTw5ns=
-github.com/Rocket-Rescue-Node/credentials v0.0.0-20240224164106-ca942dd8ec6d h1:1SRfuNknhlbDY/Ln/ZQsGaF25MEm2DWKZeQTLYJfMqM=
-github.com/Rocket-Rescue-Node/credentials v0.0.0-20240224164106-ca942dd8ec6d/go.mod h1:rInGId8V6ezrcyrNTeuWkfcSKD9fF97Mguso/x7ahJs=
 github.com/Rocket-Rescue-Node/credentials v0.0.0-20240224174210-626742fc699e h1:fGJ5R5lOqdyGfTL8HcTiCFrNT6hyvjDR5ROIaqIHGlk=
 github.com/Rocket-Rescue-Node/credentials v0.0.0-20240224174210-626742fc699e/go.mod h1:rInGId8V6ezrcyrNTeuWkfcSKD9fF97Mguso/x7ahJs=
 github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.1 h1:MyGF9V64MATdqFI2nri8u1PWgGPOlCxqkxfiN0CgAiY=
@@ -396,8 +392,8 @@ google.golang.org/protobuf v1.23.1-0.20200526195155-81db48ad09cc/go.mod h1:EGpAD
 google.golang.org/protobuf v1.25.0/go.mod h1:9JNX74DMeImyA3h4bdi1ymwjUzf21/xIlbajtzgsN7c=
 google.golang.org/protobuf v1.26.0-rc.1/go.mod h1:jlhhOSvTdKEhbULTjvd4ARK9grFBp09yW+WbY/TyQbw=
 google.golang.org/protobuf v1.26.0/go.mod h1:9q0QmTI4eRPtz6boOQmLYwt+qCgq0jsYwAQnmE0givc=
-google.golang.org/protobuf v1.31.0 h1:g0LDEJHgrBl9N9r17Ru3sqWhkIx2NB67okBHPwC7hs8=
-google.golang.org/protobuf v1.31.0/go.mod h1:HV8QOd/L58Z+nl8r43ehVNZIU/HEI6OcFqwMG9pJV4I=
+google.golang.org/protobuf v1.33.0 h1:uNO2rsAINq/JlFpSdYEKIZ0uKD/R9cpdv0T+yoGwGmI=
+google.golang.org/protobuf v1.33.0/go.mod h1:c6P6GXX6sHbq/GpV6MGZEdwhWPcYBgnhAHhKbcUYpos=
 gopkg.in/cenkalti/backoff.v1 v1.1.0 h1:Arh75ttbsvlpVA7WtVpH4u9h6Zl46xuptxqLxPiSo4Y=
 gopkg.in/cenkalti/backoff.v1 v1.1.0/go.mod h1:J6Vskwqd+OMVJl8C33mmtxTBs2gyzfv7UDAkHu8BrjI=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
