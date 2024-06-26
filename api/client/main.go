@@ -32,7 +32,7 @@ func main() {
 		tc = insecure.NewCredentials()
 	}
 
-	conn, err := grpc.Dial(*addr, grpc.WithTransportCredentials(tc))
+	conn, err := grpc.NewClient(*addr, grpc.WithTransportCredentials(tc))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)

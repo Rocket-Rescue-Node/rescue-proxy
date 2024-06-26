@@ -38,9 +38,8 @@ func setup(t *testing.T) apiTest {
 		_ = out.Close()
 	})
 
-	conn, err := grpc.DialContext(
-		ctx,
-		"",
+	conn, err := grpc.NewClient(
+		"passthrough:bufconn",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return out.Dial()
 		}),
