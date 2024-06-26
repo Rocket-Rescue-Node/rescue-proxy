@@ -8,7 +8,9 @@ COPY . /src
 
 WORKDIR /src
 RUN make
+RUN make ./api-client
 
 FROM debian:buster
 COPY --from=build /src/rescue-proxy /bin/rescue-proxy
+COPY --from=build /src/api-client /bin/api-client
 ENTRYPOINT ["/bin/rescue-proxy"]
