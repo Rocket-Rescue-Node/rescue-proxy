@@ -24,4 +24,9 @@ jobs:
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc
       - run: |
           make
-      - run: go test ./...
+      - run: go test ./... -coverprofile=./cover.out -covermode=atomic -coverpkg=./...
+      - name: check test coverage
+        uses: vladopajic/go-test-coverage@v2
+        with:
+          profile: cover.out
+          local-prefix: github.com/Rocket-Rescue-Node/rescue-proxy
