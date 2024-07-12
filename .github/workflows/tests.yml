@@ -10,6 +10,8 @@ on:
     types: [opened, reopened, synchronize]
 permissions:
   contents: read
+  # Needed to leave comments
+  pull-requests: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -41,6 +43,18 @@ jobs:
         with:
           name: code-coverage-html
           path: ./cover.html
+        id: html-upload-step
+      - name: Leave a comment with a link
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: 'Coverage report: ${{ steps.html-upload-step.outputs.artifact-url }}'
+            })
+
   coverage:
     name: "Analyze coverage report"
     if: github.event_name == 'pull_request'
