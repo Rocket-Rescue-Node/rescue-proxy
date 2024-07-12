@@ -25,8 +25,9 @@ jobs:
       - run: |
           make
       - run: go test ./... -coverprofile=./cover.out -covermode=atomic -coverpkg=./...
-      - name: check test coverage
-        uses: vladopajic/go-test-coverage@v2
+      - run: go tool cover -html cover.out -o cover.html
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
         with:
-          profile: cover.out
-          local-prefix: github.com/Rocket-Rescue-Node/rescue-proxy
+          name: code-coverage
+          path: ./cover.html
