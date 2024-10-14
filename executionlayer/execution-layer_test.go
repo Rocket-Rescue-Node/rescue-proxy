@@ -482,7 +482,7 @@ func (e *happyEC) Serve(mt int, data []byte) (int, []byte) {
 					resp = fmt.Sprintf(callResultFmt, m.ID, "0x1626ba7e")
 				} else {
 					// Return invalid signature result
-					resp = fmt.Sprintf(callResultFmt, m.ID, "0x00000000")
+					resp = fmt.Sprintf(callResultFmt, m.ID, "0xffffffff")
 				}
 			} else if callMsg.To == common.HexToAddress(eip1271SmartContractInvalidSignerAddress) {
 				resp = fmt.Sprintf(callResultFmt, m.ID, "0xdead")
