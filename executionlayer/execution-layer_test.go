@@ -41,6 +41,7 @@ const rocketTokenRETH = "0x000000000000000000000000ae78736cd615f374d3085123a2104
 const backfillNode = "0x000000000000000000000000515f7de509932bdc5ddc4c61e4324b18822c21da"
 
 const eip1271SmartContractValidSignerAddress = "0x1234567890123456789012345678901234567890"
+const eip1271SmartContractInvalidSignerAddress = "0x1234567890123456789012345678901234567891"
 const eip1271ValidSignature = "0x0000000000000000000000000000000000000000000000000000000000000456"
 const eip1271InvalidSignature = "0x0000000000000000000000000000000000000000000000000000000000000789"
 
@@ -440,7 +441,7 @@ func (e *happyEC) Serve(mt int, data []byte) (int, []byte) {
 				e.t.Log("Unhandled rocketDAONodeTrusted selector", selector)
 			}
 
-		case eip1271SmartContractValidSignerAddress:
+		case eip1271SmartContractValidSignerAddress, eip1271SmartContractInvalidSignerAddress:
 			// Define the ABI for the isValidSignature function
 			const abiJSON = `[{"inputs":[{"name":"_hash","type":"bytes32"},{"name":"_signature","type":"bytes"}],"name":"isValidSignature","outputs":[{"type":"bytes4"}],"stateMutability":"view","type":"function"}]`
 
@@ -481,6 +482,8 @@ func (e *happyEC) Serve(mt int, data []byte) (int, []byte) {
 					// Return invalid signature result
 					resp = fmt.Sprintf(callResultFmt, m.ID, "0x00000000")
 				}
+			} else if callMsg.To == common.HexToAddress(eip1271SmartContractInvalidSignerAddress) {
+				resp = fmt.Sprintf(callResultFmt, m.ID, "0xdead")
 			} else {
 				e.t.Log("Unhandled isValidSignature call to", callMsg.To.String())
 			}
@@ -1540,8 +1543,14 @@ func TestValidateEIP1271(t *testing.T) {
 			expectedResult: false,
 			expectedError:  false,
 		},
-		// TODO: add test for when smart contract call reverts (like a contract that doesn't implement the isValidSignature method)
-		// anything else?
+		{
+			name:           "Invalid contract",
+			dataHash:       [32]byte{0x00},
+			signature:      common.FromHex(eip1271InvalidSignature),
+			address:        common.HexToAddress(eip1271SmartContractInvalidSignerAddress),
+			expectedResult: false,
+			expectedError:  true,
+		},
 	}
 
 	for _, tc := range testCases {
