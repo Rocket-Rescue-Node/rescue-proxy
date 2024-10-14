@@ -40,6 +40,10 @@ const rocketTokenRETH = "0x000000000000000000000000ae78736cd615f374d3085123a2104
 
 const backfillNode = "0x000000000000000000000000515f7de509932bdc5ddc4c61e4324b18822c21da"
 
+const eip1271SmartContractValidSignerAddress = "0x1234567890123456789012345678901234567890"
+const eip1271ValidSignature = "0x0000000000000000000000000000000000000000000000000000000000000456"
+const eip1271InvalidSignature = "0x0000000000000000000000000000000000000000000000000000000000000789"
+
 //go:embed test-data/block-by-number.txt
 var blockByNumberFmt string
 
@@ -436,6 +440,50 @@ func (e *happyEC) Serve(mt int, data []byte) (int, []byte) {
 				e.t.Log("Unhandled rocketDAONodeTrusted selector", selector)
 			}
 
+		case eip1271SmartContractValidSignerAddress:
+			// Define the ABI for the isValidSignature function
+			const abiJSON = `[{"inputs":[{"name":"_hash","type":"bytes32"},{"name":"_signature","type":"bytes"}],"name":"isValidSignature","outputs":[{"type":"bytes4"}],"stateMutability":"view","type":"function"}]`
+
+			parsedABI, err := abi.JSON(strings.NewReader(abiJSON))
+			if err != nil {
+				e.t.Fatalf("Failed to parse ABI: %v", err)
+			}
+
+			// Decode the function call
+			methodID, err := hex.DecodeString(callMsg.Data[2:10])
+			if err != nil {
+				e.t.Fatalf("Failed to decode method ID: %v", err)
+			}
+			method, err := parsedABI.MethodById(methodID)
+			if err != nil {
+				e.t.Fatalf("Failed to get method from ABI: %v", err)
+			}
+
+			// Decode the rest of the data
+			callDataArguments, err := hex.DecodeString(callMsg.Data[10:])
+			if err != nil {
+				e.t.Fatalf("Failed to decode call data: %v", err)
+			}
+			args, err := method.Inputs.Unpack(callDataArguments)
+			if err != nil {
+				e.t.Fatalf("Failed to unpack arguments: %v", err)
+			}
+
+			// Extract the parameters
+			// Only really care about the signature, because in our tests we're assuming that the data hash is correct
+			signature := args[1].([]byte)
+
+			if callMsg.To == common.HexToAddress(eip1271SmartContractValidSignerAddress) {
+				if bytes.Equal(signature, common.FromHex(eip1271ValidSignature)) {
+					// Return valid signature result
+					resp = fmt.Sprintf(callResultFmt, m.ID, "0x1626ba7e")
+				} else {
+					// Return invalid signature result
+					resp = fmt.Sprintf(callResultFmt, m.ID, "0x00000000")
+				}
+			} else {
+				e.t.Log("Unhandled isValidSignature call to", callMsg.To.String())
+			}
 		default:
 			e.t.Log("Unhandled contract call", callMsg.To)
 		}
@@ -1429,6 +1477,95 @@ func TestELHandleSubscriptionError(t *testing.T) {
 
 	et.ec.Stop()
 	err = <-errs
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateEIP1271(t *testing.T) {
+	et := setup(t, &happyEC{t,
+		[]*mockNode{
+			&mockNode{
+				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
+				inSP:      true,
+				minipools: 1,
+			},
+		},
+		[]*mockNode{
+			&mockNode{
+				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
+				inSP:      false,
+				minipools: 0,
+			},
+		},
+	})
+
+	if err := et.ec.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	errs := make(chan error)
+	go func() {
+		if err := et.ec.Start(); err != nil {
+			errs <- err
+		}
+		close(errs)
+	}()
+
+	// Wait for connection
+	<-et.ec.connected
+
+	// Test cases
+	testCases := []struct {
+		name           string
+		dataHash       [32]byte
+		signature      []byte
+		address        common.Address
+		expectedResult bool
+		expectedError  bool
+	}{
+		{
+			name:           "Valid signature",
+			dataHash:       [32]byte{0x00},
+			signature:      common.FromHex(eip1271ValidSignature),
+			address:        common.HexToAddress(eip1271SmartContractValidSignerAddress),
+			expectedResult: true,
+			expectedError:  false,
+		},
+		{
+			name:           "Invalid signature",
+			dataHash:       [32]byte{0x00},
+			signature:      common.FromHex(eip1271InvalidSignature),
+			address:        common.HexToAddress(eip1271SmartContractValidSignerAddress),
+			expectedResult: false,
+			expectedError:  false,
+		},
+		// TODO: add test for when smart contract call reverts (like a contract that doesn't implement the isValidSignature method)
+		// anything else?
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := et.ec.ValidateEIP1271(tc.dataHash, tc.signature, tc.address)
+
+			if tc.expectedError {
+				if err == nil {
+					t.Errorf("Expected an error, but got nil")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+
+				if result != tc.expectedResult {
+					t.Errorf("Expected result %v, but got %v", tc.expectedResult, result)
+				}
+			}
+		})
+	}
+
+	et.ec.Stop()
+	err := <-errs
 	if err != nil {
 		t.Fatal(err)
 	}
