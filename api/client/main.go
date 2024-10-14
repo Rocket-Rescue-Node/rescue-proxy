@@ -82,6 +82,9 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
+		if r.Error != "" {
+			fmt.Printf("Validation error: %s\n", r.Error)
+		}
 		fmt.Printf("EIP-1271 Validation Result: %v\n", r.Valid)
 		return
 	}
