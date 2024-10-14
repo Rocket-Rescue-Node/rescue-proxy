@@ -3,6 +3,7 @@ package executionlayer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/url"
@@ -783,6 +784,10 @@ func getEIP1271ABI() *abi.ABI {
 	return eip1271ABI
 }
 
+var NoDataError = errors.New("no data were returned from the EVM, did you pass the correct smart contract wallet address?")
+var BadDataError = errors.New("the evm returned data with an unexpected length, did you pass the correct smart contract wallet address?")
+var InternalError = errors.New("an internal error occurred, please contact the maintainers")
+
 // ValidateEIP1271 validates an EIP-1271 signature
 func (e *CachingExecutionLayer) ValidateEIP1271(ctx context.Context, dataHash common.Hash, signature []byte, address common.Address) (bool, error) {
 	parsedABI := getEIP1271ABI()
@@ -790,7 +795,8 @@ func (e *CachingExecutionLayer) ValidateEIP1271(ctx context.Context, dataHash co
 	// Encode the function call
 	encodedData, err := parsedABI.Pack("isValidSignature", dataHash, signature)
 	if err != nil {
-		return false, fmt.Errorf("failed to encode function call: %w", err)
+		e.Logger.Warn("error packing isValidSignature call", zap.Error(err))
+		return false, InternalError
 	}
 
 	// Make the contract call
@@ -799,16 +805,22 @@ func (e *CachingExecutionLayer) ValidateEIP1271(ctx context.Context, dataHash co
 		Data: encodedData,
 	}, nil)
 	if err != nil {
-		return false, err
+		e.Logger.Warn("error querying the execution client to validate an EIP1271 signature", zap.Error(err))
+		return false, InternalError
+	}
+
+	if len(data) == 0 {
+		return false, NoDataError
 	}
 
 	// Check the return value, it should be exactly 4 bytes long
 	if len(data) != 4 {
-		return false, fmt.Errorf("invalid return data length")
+		return false, BadDataError
 	}
 
 	// The expected return value for a valid signature is 0x1626ba7e
 	// bytes4(keccak256("isValidSignature(bytes32,bytes)")
+	// invalid signatures return 4 bytes that do not match the magic
 	expectedReturnValue := [4]byte{0x16, 0x26, 0xba, 0x7e}
 	return bytes.Equal(data, expectedReturnValue[:]), nil
 }
