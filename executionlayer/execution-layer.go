@@ -813,6 +813,9 @@ func (e *CachingExecutionLayer) ValidateEIP1271(ctx context.Context, dataHash co
 		return false, NoDataError
 	}
 
+	// Trim the trailing 0-bytes from the evm
+	data = bytes.TrimRight(data, "\x00")
+
 	// Check the return value, it should be exactly 4 bytes long
 	if len(data) != 4 {
 		return false, BadDataError
