@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"math/big"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -46,6 +48,7 @@ type ExecutionLayer interface {
 	ForEachOdaoNode(ForEachNodeClosure) error
 	GetRPInfo(rptypes.ValidatorPubkey) (*RPInfo, error)
 	REthAddress() *common.Address
+	ValidateEIP1271(ctx context.Context, dataHash common.Hash, signature []byte, address common.Address) (bool, error)
 }
 
 // CachingExecutionLayer is a bespoke execution layer client for the rescue proxy.
@@ -760,4 +763,52 @@ func (e *CachingExecutionLayer) GetRPInfo(pubkey rptypes.ValidatorPubkey) (*RPIn
 // REthAddress is a convenience function to get the rEth contract address
 func (e *CachingExecutionLayer) REthAddress() *common.Address {
 	return e.rEth.Address
+}
+
+// EIP1271ABI is the ABI for the EIP-1271 isValidSignature function
+var eip1271ABI *abi.ABI
+
+// getEIP1271ABI returns the EIP1271ABI
+func getEIP1271ABI() *abi.ABI {
+	if eip1271ABI != nil {
+		return eip1271ABI
+	}
+
+	const abiJSON = `[{"inputs":[{"name":"_hash","type":"bytes32"},{"name":"_signature","type":"bytes"}],"name":"isValidSignature","outputs":[{"type":"bytes4"}],"stateMutability":"view","type":"function"}]`
+	parsedABI, err := abi.JSON(strings.NewReader(abiJSON))
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse EIP1271 ABI: %v", err))
+	}
+	eip1271ABI = &parsedABI
+	return eip1271ABI
+}
+
+// ValidateEIP1271 validates an EIP-1271 signature
+func (e *CachingExecutionLayer) ValidateEIP1271(ctx context.Context, dataHash common.Hash, signature []byte, address common.Address) (bool, error) {
+	parsedABI := getEIP1271ABI()
+
+	// Encode the function call
+	encodedData, err := parsedABI.Pack("isValidSignature", dataHash, signature)
+	if err != nil {
+		return false, fmt.Errorf("failed to encode function call: %w", err)
+	}
+
+	// Make the contract call
+	data, err := e.client.CallContract(ctx, ethereum.CallMsg{
+		To:   &address,
+		Data: encodedData,
+	}, nil)
+	if err != nil {
+		return false, err
+	}
+
+	// Check the return value, it should be exactly 4 bytes long
+	if len(data) != 4 {
+		return false, fmt.Errorf("invalid return data length")
+	}
+
+	// The expected return value for a valid signature is 0x1626ba7e
+	// bytes4(keccak256("isValidSignature(bytes32,bytes)")
+	expectedReturnValue := [4]byte{0x16, 0x26, 0xba, 0x7e}
+	return bytes.Equal(data, expectedReturnValue[:]), nil
 }

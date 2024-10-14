@@ -1,6 +1,7 @@
 package test
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/binary"
 	"math/rand"
@@ -90,4 +91,8 @@ func (m *MockExecutionLayer) GetRPInfo(k rptypes.ValidatorPubkey) (*executionlay
 
 func (m *MockExecutionLayer) REthAddress() *common.Address {
 	return &m.REth
+}
+
+func (m *MockExecutionLayer) ValidateEIP1271(ctx context.Context, dataHash common.Hash, signature []byte, address common.Address) (bool, error) {
+	return true, nil
 }

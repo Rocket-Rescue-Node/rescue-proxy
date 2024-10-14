@@ -9,6 +9,7 @@ service Api {
 	rpc GetRocketPoolNodes (RocketPoolNodesRequest) returns (RocketPoolNodes) {}
 	rpc GetOdaoNodes (OdaoNodesRequest) returns (OdaoNodes) {}
 	rpc GetSoloValidators (SoloValidatorsRequest) returns (SoloValidators) {}
+	rpc ValidateEIP1271 (ValidateEIP1271Request) returns (ValidateEIP1271Response) {}
 }
 
 message RocketPoolNodesRequest {
@@ -33,4 +34,15 @@ message SoloValidatorsRequest {
 
 message SoloValidators {
 	repeated bytes withdrawal_addresses = 1;
+}
+
+message ValidateEIP1271Request {
+	bytes data_hash = 1;
+	bytes signature = 2;
+	bytes address = 3;
+}
+
+message ValidateEIP1271Response {
+	bool valid = 1;
+	string error = 2;
 }
