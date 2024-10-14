@@ -1,4 +1,4 @@
-VERSION = v1.1.2
+VERSION = v1.2.0
 
 SOURCEDIR := .
 SOURCES := $(shell find $(SOURCEDIR) -name '*.go')
