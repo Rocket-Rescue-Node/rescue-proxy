@@ -765,15 +765,27 @@ func (e *CachingExecutionLayer) REthAddress() *common.Address {
 	return e.rEth.Address
 }
 
-// ValidateEIP1271 validates an EIP-1271 signature
-func (e *CachingExecutionLayer) ValidateEIP1271(dataHash [32]byte, signature []byte, address common.Address) (bool, error) {
-	// Define the ABI for the isValidSignature function
-	const abiJSON = `[{"inputs":[{"name":"_hash","type":"bytes32"},{"name":"_signature","type":"bytes"}],"name":"isValidSignature","outputs":[{"type":"bytes4"}],"stateMutability":"view","type":"function"}]`
+// EIP1271ABI is the ABI for the EIP-1271 isValidSignature function
+var eip1271ABI *abi.ABI
 
+// init initializes the EIP1271ABI at program startup
+func init() {
+	const abiJSON = `[{"inputs":[{"name":"_hash","type":"bytes32"},{"name":"_signature","type":"bytes"}],"name":"isValidSignature","outputs":[{"type":"bytes4"}],"stateMutability":"view","type":"function"}]`
 	parsedABI, err := abi.JSON(strings.NewReader(abiJSON))
 	if err != nil {
-		return false, fmt.Errorf("failed to parse ABI: %w", err)
+		panic(fmt.Sprintf("failed to parse EIP1271 ABI: %v", err))
 	}
+	eip1271ABI = &parsedABI
+}
+
+// getEIP1271ABI returns the EIP1271ABI
+func getEIP1271ABI() *abi.ABI {
+	return eip1271ABI
+}
+
+// ValidateEIP1271 validates an EIP-1271 signature
+func (e *CachingExecutionLayer) ValidateEIP1271(dataHash [32]byte, signature []byte, address common.Address) (bool, error) {
+	parsedABI := getEIP1271ABI()
 
 	// Encode the function call
 	encodedData, err := parsedABI.Pack("isValidSignature", dataHash, signature)
