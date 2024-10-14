@@ -88,10 +88,10 @@ func (a *API) GetSoloValidators(ctx context.Context, request *pb.SoloValidatorsR
 
 func (a *API) ValidateEIP1271(ctx context.Context, request *pb.ValidateEIP1271Request) (*pb.ValidateEIP1271Response, error) {
 	if len(request.DataHash) != 32 {
-		return nil, fmt.Errorf("invalid dataHash length: expected 32 bytes, got %d", len(request.DataHash))
+		return &pb.ValidateEIP1271Response{Error: fmt.Sprintf("invalid DataHash length: expected 32 bytes, got %d", len(request.DataHash))}, nil
 	}
 	if len(request.Address) != 20 {
-		return nil, fmt.Errorf("invalid address length: expected 20 bytes, got %d", len(request.Address))
+		return &pb.ValidateEIP1271Response{Error: fmt.Sprintf("invalid Address length: expected 20 bytes, got %d", len(request.Address))}, nil
 	}
 	dataHash := common.BytesToHash(request.DataHash)
 	address := common.BytesToAddress(request.Address)
@@ -99,7 +99,7 @@ func (a *API) ValidateEIP1271(ctx context.Context, request *pb.ValidateEIP1271Re
 	valid, err := a.EL.ValidateEIP1271(ctx, dataHash, request.Signature, address)
 	if err != nil {
 		a.m.Counter("validate_eip1271_error").Inc()
-		return nil, err
+		return &pb.ValidateEIP1271Response{Error: err.Error()}, nil
 	}
 
 	a.m.Counter("validate_eip1271_ok").Inc()
