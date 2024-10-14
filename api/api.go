@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -83,6 +84,26 @@ func (a *API) GetSoloValidators(ctx context.Context, request *pb.SoloValidatorsR
 
 	a.m.Counter("get_solo_validators_ok").Inc()
 	return out, nil
+}
+
+func (a *API) ValidateEIP1271(ctx context.Context, request *pb.ValidateEIP1271Request) (*pb.ValidateEIP1271Response, error) {
+	if len(request.DataHash) != 32 {
+		return nil, fmt.Errorf("invalid dataHash length: expected 32 bytes, got %d", len(request.DataHash))
+	}
+	if len(request.Address) != 20 {
+		return nil, fmt.Errorf("invalid address length: expected 20 bytes, got %d", len(request.Address))
+	}
+	dataHash := common.BytesToHash(request.DataHash)
+	address := common.BytesToAddress(request.Address)
+
+	valid, err := a.EL.ValidateEIP1271(ctx, dataHash, request.Signature, address)
+	if err != nil {
+		a.m.Counter("validate_eip1271_error").Inc()
+		return nil, err
+	}
+
+	a.m.Counter("validate_eip1271_ok").Inc()
+	return &pb.ValidateEIP1271Response{Valid: valid}, nil
 }
 
 func (a *API) updateCache() error {
