@@ -768,18 +768,18 @@ func (e *CachingExecutionLayer) REthAddress() *common.Address {
 // EIP1271ABI is the ABI for the EIP-1271 isValidSignature function
 var eip1271ABI *abi.ABI
 
-// init initializes the EIP1271ABI at program startup
-func init() {
+// getEIP1271ABI returns the EIP1271ABI
+func getEIP1271ABI() *abi.ABI {
+	if eip1271ABI != nil {
+		return eip1271ABI
+	}
+
 	const abiJSON = `[{"inputs":[{"name":"_hash","type":"bytes32"},{"name":"_signature","type":"bytes"}],"name":"isValidSignature","outputs":[{"type":"bytes4"}],"stateMutability":"view","type":"function"}]`
 	parsedABI, err := abi.JSON(strings.NewReader(abiJSON))
 	if err != nil {
 		panic(fmt.Sprintf("failed to parse EIP1271 ABI: %v", err))
 	}
 	eip1271ABI = &parsedABI
-}
-
-// getEIP1271ABI returns the EIP1271ABI
-func getEIP1271ABI() *abi.ABI {
 	return eip1271ABI
 }
 
