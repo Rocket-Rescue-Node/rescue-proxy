@@ -48,7 +48,7 @@ type ExecutionLayer interface {
 	ForEachOdaoNode(ForEachNodeClosure) error
 	GetRPInfo(rptypes.ValidatorPubkey) (*RPInfo, error)
 	REthAddress() *common.Address
-	ValidateEIP1271(dataHash [32]byte, signature []byte, address common.Address) (bool, error)
+	ValidateEIP1271(ctx context.Context, dataHash common.Hash, signature []byte, address common.Address) (bool, error)
 }
 
 // CachingExecutionLayer is a bespoke execution layer client for the rescue proxy.
@@ -784,7 +784,7 @@ func getEIP1271ABI() *abi.ABI {
 }
 
 // ValidateEIP1271 validates an EIP-1271 signature
-func (e *CachingExecutionLayer) ValidateEIP1271(dataHash [32]byte, signature []byte, address common.Address) (bool, error) {
+func (e *CachingExecutionLayer) ValidateEIP1271(ctx context.Context, dataHash common.Hash, signature []byte, address common.Address) (bool, error) {
 	parsedABI := getEIP1271ABI()
 
 	// Encode the function call
@@ -794,7 +794,7 @@ func (e *CachingExecutionLayer) ValidateEIP1271(dataHash [32]byte, signature []b
 	}
 
 	// Make the contract call
-	data, err := e.client.CallContract(e.ctx, ethereum.CallMsg{
+	data, err := e.client.CallContract(ctx, ethereum.CallMsg{
 		To:   &address,
 		Data: encodedData,
 	}, nil)

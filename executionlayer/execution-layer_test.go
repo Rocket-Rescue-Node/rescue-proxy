@@ -2,6 +2,7 @@ package executionlayer
 
 import (
 	"bytes"
+	"context"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
 	"github.com/ethereum/go-ethereum"
@@ -1555,7 +1557,8 @@ func TestValidateEIP1271(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := et.ec.ValidateEIP1271(tc.dataHash, tc.signature, tc.address)
+			ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+			result, err := et.ec.ValidateEIP1271(ctx, tc.dataHash, tc.signature, tc.address)
 
 			if tc.expectedError {
 				if err == nil {
