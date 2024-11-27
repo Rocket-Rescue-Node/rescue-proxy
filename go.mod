@@ -13,7 +13,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.17
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.16.0
-	github.com/rocket-pool/rocketpool-go v1.8.0
+	github.com/rocket-pool/rocketpool-go v1.8.4-0.20241122223132-c5f2be18f72b
 	github.com/rs/zerolog v1.30.0
 	go.uber.org/zap v1.25.0
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9
