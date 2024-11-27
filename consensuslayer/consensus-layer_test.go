@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
-	apiv1 "github.com/attestantio/go-eth2-client/api/v1"
-	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -279,11 +277,7 @@ func TestOnHeadUpdate(t *testing.T) {
 		}
 
 		// Advance the internal head counter to update metrics
-		cct.ccl.onHeadUpdate(&apiv1.Event{
-			Data: &apiv1.HeadEvent{
-				Slot: phase0.Slot(i),
-			},
-		})
+		cct.ccl.onHeadUpdate(uint64(i))
 	}
 
 	pev := metrics.PreviousEpochValidators()
@@ -317,11 +311,6 @@ func TestErrorPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	// Make sure non-conforming events don't crash
-	cct.ccl.onHeadUpdate(&apiv1.Event{
-		Data: struct{}{},
-	})
 
 	// 0x00 validators trigger logging
 	_, err = cct.ccl.GetValidatorInfo([]string{"100", "101"})

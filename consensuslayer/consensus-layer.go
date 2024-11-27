@@ -65,20 +65,10 @@ func NewCachingConsensusLayer(bnURL *url.URL, logger *zap.Logger, forceJSON bool
 	return out
 }
 
-func (c *CachingConsensusLayer) onHeadUpdate(e *apiv1.Event) {
-	headEvent, ok := e.Data.(*apiv1.HeadEvent)
-	if !ok {
-		c.logger.Warn("Couldn't convert event to headEvent", zap.Any("event", e))
-		return
-	}
+func (c *CachingConsensusLayer) onHeadUpdate(slot uint64) {
 
-	c.logger.Debug("Observed consensus slot", zap.Uint64("slot", uint64(headEvent.Slot)), zap.Bool("new_epoch", headEvent.EpochTransition))
-
-	// The CL doesn't report events very reliably, probably an issue with the attestantio client.
-	// So, every single slot, we will check to see if the epoch advanced.
-	epoch := uint64(headEvent.Slot) / c.slotsPerEpoch
-
-	metrics.OnHead(epoch)
+	c.logger.Debug("Observed consensus slot", zap.Uint64("slot", slot))
+	metrics.OnHead(slot / c.slotsPerEpoch)
 }
 
 // Init connects to the consensus layer and initializes the cache
@@ -110,11 +100,32 @@ func (c *CachingConsensusLayer) Init(ctx context.Context) error {
 
 	c.logger.Info("Connected to Beacon Node", zap.String("url", c.bnURL.String()))
 
-	// Listen for head updates
-	err = c.client.Events(ctx, []string{"head"}, c.onHeadUpdate)
-	if err != nil {
-		c.logger.Warn("Couldn't subscribe to CL events. Metrics will be inaccurate", zap.Error(err))
-	}
+	// Poll for head updates
+	tickerCtx, tickerCtxCancel := context.WithCancel(ctx)
+	ticker := time.NewTicker(12 * time.Second)
+	go func() {
+		select {
+		case <-tickerCtx.Done():
+			// The parent context was canceled, so exit now
+			c.logger.Debug("ConsensusLayer context canceled, exiting head update ticker")
+			tickerCtxCancel()
+			return
+		case <-ticker.C:
+			// Poll for head updates
+			syncingCtx, syncingCtxCancel := context.WithTimeout(tickerCtx, 2*time.Second)
+			defer syncingCtxCancel()
+			nodeSyncing, err := c.client.NodeSyncing(syncingCtx, &api.NodeSyncingOpts{
+				Common: api.CommonOpts{
+					Timeout: 2 * time.Second,
+				},
+			})
+			if err != nil {
+				c.logger.Warn("Error polling for node syncing", zap.Error(err))
+				break
+			}
+			c.onHeadUpdate(uint64(nodeSyncing.Data.HeadSlot))
+		}
+	}()
 
 	validatorCacheConfig := bigcache.DefaultConfig(10 * time.Hour)
 	validatorCacheConfig.CleanWindow = 30 * time.Second
