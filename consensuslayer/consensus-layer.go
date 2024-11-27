@@ -113,7 +113,7 @@ func (c *CachingConsensusLayer) Init(ctx context.Context) error {
 	// Listen for head updates
 	err = c.client.Events(ctx, []string{"head"}, c.onHeadUpdate)
 	if err != nil {
-		c.logger.Warn("Clouldn't subscribe to CL events. Metrics will be inaccurate", zap.Error(err))
+		c.logger.Warn("Couldn't subscribe to CL events. Metrics will be inaccurate", zap.Error(err))
 	}
 
 	validatorCacheConfig := bigcache.DefaultConfig(10 * time.Hour)
