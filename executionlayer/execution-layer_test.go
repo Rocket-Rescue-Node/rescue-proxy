@@ -183,9 +183,9 @@ type jsonrpcMessage struct {
 }
 
 type call struct {
-	To   common.Address `json:"to"`
-	From common.Address `json:"from"`
-	Data string         `json:"data"`
+	To    common.Address `json:"to"`
+	From  common.Address `json:"from"`
+	Input string         `json:"input"`
 }
 
 func (e *happyEC) Serve(mt int, data []byte) (int, []byte) {
@@ -220,14 +220,14 @@ func (e *happyEC) Serve(mt int, data []byte) (int, []byte) {
 			e.t.Fatal(err)
 		}
 
-		if len(callMsg.Data) == 0 {
+		if len(callMsg.Input) == 0 {
 			e.t.Fatal("eth call with 0-len data")
 		}
 
 		switch callMsg.To.String() {
 		case rocketStorage:
-			selector := callMsg.Data[:10]
-			input := callMsg.Data[10:]
+			selector := callMsg.Input[:10]
+			input := callMsg.Input[10:]
 			switch selector {
 			// Get Address
 			case "0x21f8a721":
@@ -289,8 +289,8 @@ func (e *happyEC) Serve(mt int, data []byte) (int, []byte) {
 			}
 
 		case common.HexToAddress(rocketNodeManager).String():
-			selector := callMsg.Data[:10]
-			input := callMsg.Data[10:]
+			selector := callMsg.Input[:10]
+			input := callMsg.Input[10:]
 			switch selector {
 			// GetNodeCount
 			case "0x39bf397e":
@@ -331,8 +331,8 @@ func (e *happyEC) Serve(mt int, data []byte) (int, []byte) {
 			}
 
 		case common.HexToAddress(rocketNodeDistributorFactory).String():
-			selector := callMsg.Data[:10]
-			input := callMsg.Data[10:]
+			selector := callMsg.Input[:10]
+			input := callMsg.Input[10:]
 			switch selector {
 			// GetProxyAddress(address)
 			case "0xfa2a5b01":
@@ -346,8 +346,8 @@ func (e *happyEC) Serve(mt int, data []byte) (int, []byte) {
 				e.t.Log("Unhandled rocketNodeDistributorFactory selector", selector)
 			}
 		case common.HexToAddress(rocketMinipoolManager).String():
-			selector := callMsg.Data[:10]
-			input := callMsg.Data[10:]
+			selector := callMsg.Input[:10]
+			input := callMsg.Input[10:]
 			switch selector {
 			// GetNodeMinipoolCount(address)
 			case "0x1ce9ec33":
@@ -418,8 +418,8 @@ func (e *happyEC) Serve(mt int, data []byte) (int, []byte) {
 				e.t.Log("Unhandled rocketMinipoolManager selector", selector)
 			}
 		case common.HexToAddress(rocketDAONodeTrusted).String():
-			selector := callMsg.Data[:10]
-			input := callMsg.Data[10:]
+			selector := callMsg.Input[:10]
+			input := callMsg.Input[10:]
 			switch selector {
 			// GetMemberCount()
 			case "0x997072f7":
@@ -453,7 +453,7 @@ func (e *happyEC) Serve(mt int, data []byte) (int, []byte) {
 			}
 
 			// Decode the function call
-			methodID, err := hex.DecodeString(callMsg.Data[2:10])
+			methodID, err := hex.DecodeString(callMsg.Input[2:10])
 			if err != nil {
 				e.t.Fatalf("Failed to decode method ID: %v", err)
 			}
@@ -463,7 +463,7 @@ func (e *happyEC) Serve(mt int, data []byte) (int, []byte) {
 			}
 
 			// Decode the rest of the data
-			callDataArguments, err := hex.DecodeString(callMsg.Data[10:])
+			callDataArguments, err := hex.DecodeString(callMsg.Input[10:])
 			if err != nil {
 				e.t.Fatalf("Failed to decode call data: %v", err)
 			}
