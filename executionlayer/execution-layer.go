@@ -306,7 +306,7 @@ func (e *CachingExecutionLayer) backfillEvents() error {
 		// The current block is actually the last block processed by the EC, so play any events from it as well
 		// The range is inclusive
 		ToBlock: stop,
-		Topics: [][]common.Hash{[]common.Hash{
+		Topics: [][]common.Hash{{
 			e.nodeRegisteredTopic,
 			e.smoothingPoolStatusChangedTopic,
 			e.minipoolLaunchedTopic,
@@ -398,7 +398,7 @@ func (e *CachingExecutionLayer) handleSubscriptionError(err error, logEventSub *
 }
 
 // Registers to receive the events we care about
-func (e *CachingExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
+func (e *CachingExecutionLayer) ecEventsConnect(_ *bind.CallOpts) error {
 	var err error
 
 	e.nodeRegisteredTopic = crypto.Keccak256Hash([]byte("NodeRegistered(address,uint256)"))
@@ -411,7 +411,7 @@ func (e *CachingExecutionLayer) ecEventsConnect(opts *bind.CallOpts) error {
 	// Subscribe to events from rocketNodeManager and rocketMinipoolManager
 	e.query = ethereum.FilterQuery{
 		Addresses: []common.Address{*e.rocketMinipoolManager.Address, *e.rocketNodeManager.Address},
-		Topics: [][]common.Hash{[]common.Hash{
+		Topics: [][]common.Hash{{
 			e.nodeRegisteredTopic,
 			e.smoothingPoolStatusChangedTopic,
 			e.minipoolLaunchedTopic,
@@ -784,9 +784,9 @@ func getEIP1271ABI() *abi.ABI {
 	return eip1271ABI
 }
 
-var NoDataError = errors.New("no data were returned from the EVM, did you pass the correct smart contract wallet address?")
-var BadDataError = errors.New("the evm returned data with an unexpected length, did you pass the correct smart contract wallet address?")
-var InternalError = errors.New("an internal error occurred, please contact the maintainers")
+var ErrNoData = errors.New("no data were returned from the EVM, did you pass the correct smart contract wallet address?")
+var ErrBadData = errors.New("the evm returned data with an unexpected length, did you pass the correct smart contract wallet address?")
+var ErrInternal = errors.New("an internal error occurred, please contact the maintainers")
 
 // ValidateEIP1271 validates an EIP-1271 signature
 func (e *CachingExecutionLayer) ValidateEIP1271(ctx context.Context, dataHash common.Hash, signature []byte, address common.Address) (bool, error) {
@@ -796,7 +796,7 @@ func (e *CachingExecutionLayer) ValidateEIP1271(ctx context.Context, dataHash co
 	encodedData, err := parsedABI.Pack("isValidSignature", dataHash, signature)
 	if err != nil {
 		e.Logger.Warn("error packing isValidSignature call", zap.Error(err))
-		return false, InternalError
+		return false, ErrInternal
 	}
 
 	// Make the contract call
@@ -806,15 +806,15 @@ func (e *CachingExecutionLayer) ValidateEIP1271(ctx context.Context, dataHash co
 	}, nil)
 	if err != nil {
 		e.Logger.Warn("error querying the execution client to validate an EIP1271 signature", zap.Error(err))
-		return false, InternalError
+		return false, ErrInternal
 	}
 
 	if len(data) == 0 {
-		return false, NoDataError
+		return false, ErrNoData
 	}
 
 	if len(data) < 4 {
-		return false, BadDataError
+		return false, ErrBadData
 	}
 
 	// Trim the trailing bytes from the evm
@@ -822,7 +822,7 @@ func (e *CachingExecutionLayer) ValidateEIP1271(ctx context.Context, dataHash co
 
 	// Check the return value, it should be exactly 4 bytes long
 	if len(data) != 4 {
-		return false, BadDataError
+		return false, ErrBadData
 	}
 
 	// The expected return value for a valid signature is 0x1626ba7e

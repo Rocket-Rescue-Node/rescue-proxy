@@ -502,19 +502,19 @@ func (e *happyEC) Serve(mt int, data []byte) (int, []byte) {
 func TestELStartStop(t *testing.T) {
 	et := setup(t, &happyEC{t,
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
 				inSP:      true,
 				minipools: 1,
 			},
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000002234567899876543210"),
 				inSP:      false,
 				minipools: 3,
 			},
 		},
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
 				inSP:      false,
 				minipools: 0,
@@ -552,24 +552,24 @@ func TestSQLELCache(t *testing.T) {
 
 	hec := &happyEC{t,
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
 				inSP:      true,
 				minipools: 1,
 			},
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000002234567899876543210"),
 				inSP:      false,
 				minipools: 3,
 			},
 		},
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
 				inSP:      false,
 				minipools: 0,
 			},
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x01"),
 				inSP:      false,
 				minipools: 0,
@@ -616,19 +616,19 @@ func TestSQLELCache(t *testing.T) {
 
 	et = setup(t, &happyEC{t,
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
 				inSP:      true,
 				minipools: 1,
 			},
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000002234567899876543210"),
 				inSP:      false,
 				minipools: 3,
 			},
 		},
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
 				inSP:      false,
 				minipools: 0,
@@ -751,19 +751,19 @@ func TestSQLELCache(t *testing.T) {
 func TestELGetRPInfoMissing(t *testing.T) {
 	et := setup(t, &happyEC{t,
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
 				inSP:      true,
 				minipools: 1,
 			},
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000002234567899876543210"),
 				inSP:      false,
 				minipools: 3,
 			},
 		},
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
 				inSP:      false,
 				minipools: 0,
@@ -804,19 +804,19 @@ func TestELGetRPInfoMissing(t *testing.T) {
 func TestELGetRETHAddress(t *testing.T) {
 	et := setup(t, &happyEC{t,
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
 				inSP:      true,
 				minipools: 1,
 			},
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000002234567899876543210"),
 				inSP:      false,
 				minipools: 3,
 			},
 		},
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
 				inSP:      false,
 				minipools: 0,
@@ -858,19 +858,19 @@ func TestELGetRETHAddress(t *testing.T) {
 func TestELForEaches(t *testing.T) {
 	hec := &happyEC{t,
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
 				inSP:      true,
 				minipools: 1,
 			},
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000002234567899876543210"),
 				inSP:      false,
 				minipools: 3,
 			},
 		},
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
 				inSP:      false,
 				minipools: 0,
@@ -984,19 +984,19 @@ func TestELForEaches(t *testing.T) {
 func TestELODAOJoinLeave(t *testing.T) {
 	et := setup(t, &happyEC{t,
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
 				inSP:      true,
 				minipools: 1,
 			},
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000002234567899876543210"),
 				inSP:      false,
 				minipools: 3,
 			},
 		},
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
 				inSP:      false,
 				minipools: 0,
@@ -1102,19 +1102,19 @@ func TestELODAOJoinLeave(t *testing.T) {
 func TestELNodeEvents(t *testing.T) {
 	et := setup(t, &happyEC{t,
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
 				inSP:      true,
 				minipools: 1,
 			},
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000002234567899876543210"),
 				inSP:      false,
 				minipools: 3,
 			},
 		},
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
 				inSP:      false,
 				minipools: 0,
@@ -1271,19 +1271,19 @@ func TestELNodeEvents(t *testing.T) {
 func TestELSPChangeUnknownNode(t *testing.T) {
 	et := setup(t, &happyEC{t,
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
 				inSP:      true,
 				minipools: 1,
 			},
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000002234567899876543210"),
 				inSP:      false,
 				minipools: 3,
 			},
 		},
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
 				inSP:      false,
 				minipools: 0,
@@ -1375,19 +1375,19 @@ func TestELSPChangeUnknownNode(t *testing.T) {
 func TestELHandleSubscriptionError(t *testing.T) {
 	et := setup(t, &happyEC{t,
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
 				inSP:      true,
 				minipools: 1,
 			},
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000002234567899876543210"),
 				inSP:      false,
 				minipools: 3,
 			},
 		},
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
 				inSP:      false,
 				minipools: 0,
@@ -1490,14 +1490,14 @@ func TestELHandleSubscriptionError(t *testing.T) {
 func TestValidateEIP1271(t *testing.T) {
 	et := setup(t, &happyEC{t,
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
 				inSP:      true,
 				minipools: 1,
 			},
 		},
 		[]*mockNode{
-			&mockNode{
+			{
 				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
 				inSP:      false,
 				minipools: 0,
