@@ -119,13 +119,13 @@ func (c *CachingConsensusLayer) Init(ctx context.Context) error {
 						Timeout: 2 * time.Second,
 					},
 				})
+				// Cancel the context before looping again
+				syncingCtxCancel()
 				if err != nil {
 					c.logger.Warn("Error polling for node syncing", zap.Error(err))
 					break
 				}
 				c.onHeadUpdate(uint64(nodeSyncing.Data.HeadSlot))
-				// Cancel the context before looping again
-				syncingCtxCancel()
 			}
 		}
 	}()
