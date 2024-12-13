@@ -104,26 +104,29 @@ func (c *CachingConsensusLayer) Init(ctx context.Context) error {
 	tickerCtx, tickerCtxCancel := context.WithCancel(ctx)
 	ticker := time.NewTicker(12 * time.Second)
 	go func() {
-		select {
-		case <-tickerCtx.Done():
-			// The parent context was canceled, so exit now
-			c.logger.Debug("ConsensusLayer context canceled, exiting head update ticker")
-			tickerCtxCancel()
-			return
-		case <-ticker.C:
-			// Poll for head updates
-			syncingCtx, syncingCtxCancel := context.WithTimeout(tickerCtx, 2*time.Second)
-			defer syncingCtxCancel()
-			nodeSyncing, err := c.client.NodeSyncing(syncingCtx, &api.NodeSyncingOpts{
-				Common: api.CommonOpts{
-					Timeout: 2 * time.Second,
-				},
-			})
-			if err != nil {
-				c.logger.Warn("Error polling for node syncing", zap.Error(err))
-				break
+		for {
+			select {
+			case <-tickerCtx.Done():
+				// The parent context was canceled, so exit now
+				c.logger.Debug("ConsensusLayer context canceled, exiting head update ticker")
+				tickerCtxCancel()
+				return
+			case <-ticker.C:
+				// Poll for head updates
+				syncingCtx, syncingCtxCancel := context.WithTimeout(tickerCtx, 2*time.Second)
+				nodeSyncing, err := c.client.NodeSyncing(syncingCtx, &api.NodeSyncingOpts{
+					Common: api.CommonOpts{
+						Timeout: 2 * time.Second,
+					},
+				})
+				if err != nil {
+					c.logger.Warn("Error polling for node syncing", zap.Error(err))
+					break
+				}
+				c.onHeadUpdate(uint64(nodeSyncing.Data.HeadSlot))
+				// Cancel the context before looping again
+				syncingCtxCancel()
 			}
-			c.onHeadUpdate(uint64(nodeSyncing.Data.HeadSlot))
 		}
 	}()
 
