@@ -30,28 +30,38 @@ type mockHandler struct {
 }
 
 func (m *mockHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var err error
+	var responded bool
+
 	path := r.URL.String()
 
 	m.t.Log("handling " + path)
 	// Let's return json
 	w.Header()["Content-Type"] = []string{"application/json"}
-	w.WriteHeader(200)
 	// Mainnet responses
 	switch path {
 	case "/eth/v1/beacon/genesis":
-		fmt.Fprintln(w, mainnetGenesis)
-		return
+		_, err = fmt.Fprintln(w, mainnetGenesis)
+		responded = true
 	case "/eth/v1/config/spec":
-		fmt.Fprintln(w, mainnetConfigSpec)
-		return
+		_, err = fmt.Fprintln(w, mainnetConfigSpec)
+		responded = true
 	case "/eth/v1/config/deposit_contract":
-		fmt.Fprintln(w, mainnetConfigDepositContract)
-		return
+		_, err = fmt.Fprintln(w, mainnetConfigDepositContract)
+		responded = true
 	case "/eth/v1/config/fork_schedule":
-		fmt.Fprintln(w, mainnetConfigForkSchedule)
-		return
+		_, err = fmt.Fprintln(w, mainnetConfigForkSchedule)
+		responded = true
 	case "/eth/v1/node/version":
-		fmt.Fprintln(w, `{"data":{"version":"None-of-your-beeswax"}}`)
+		_, err = fmt.Fprintln(w, `{"data":{"version":"None-of-your-beeswax"}}`)
+		responded = true
+	}
+	if err != nil {
+		w.WriteHeader(500)
+	} else {
+		w.WriteHeader(200)
+	}
+	if responded {
 		return
 	}
 
@@ -102,7 +112,7 @@ func TestGetValidatorInfo(t *testing.T) {
 		h: func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.String() {
 			case "/eth/v1/beacon/states/head/validators?id=100,101":
-				fmt.Fprintf(w, `{"execution_optimistic":false,"data":[{"index":"100","balance":"32005252956","status":"active_ongoing","validator":{"pubkey":"0xb5bc96b70df0dfcc252c9ff0d1b42cb6dc0d55f8defa474dc0a5c7e0402c241e2850fea9c582e276b638b3c2c3a5ec55","withdrawal_credentials":"0x010000000000000000000000801e880e2e9aa87b20c9cc9ebf7375adb11eac21","effective_balance":"32000000000","slashed":false,"activation_eligibility_epoch":"0","activation_epoch":"0","exit_epoch":"18446744073709551615","withdrawable_epoch":"18446744073709551615"}},{"index":"101","balance":"32005224938","status":"active_ongoing","validator":{"pubkey":"0xaa160542c2b1b9dbf5e11ca044067526c6dfff65efba88ea483d49bdbe478ab7489f8b1a903ea22b6d30cfa57626ca9e","withdrawal_credentials":"0x010000000000000000000000d944cf00517e2dd8d00bd5c4ea1ec45cf3ec52db","effective_balance":"32000000000","slashed":false,"activation_eligibility_epoch":"0","activation_epoch":"0","exit_epoch":"18446744073709551615","withdrawable_epoch":"18446744073709551615"}}]}`)
+				_, _ = fmt.Fprintf(w, `{"execution_optimistic":false,"data":[{"index":"100","balance":"32005252956","status":"active_ongoing","validator":{"pubkey":"0xb5bc96b70df0dfcc252c9ff0d1b42cb6dc0d55f8defa474dc0a5c7e0402c241e2850fea9c582e276b638b3c2c3a5ec55","withdrawal_credentials":"0x010000000000000000000000801e880e2e9aa87b20c9cc9ebf7375adb11eac21","effective_balance":"32000000000","slashed":false,"activation_eligibility_epoch":"0","activation_epoch":"0","exit_epoch":"18446744073709551615","withdrawable_epoch":"18446744073709551615"}},{"index":"101","balance":"32005224938","status":"active_ongoing","validator":{"pubkey":"0xaa160542c2b1b9dbf5e11ca044067526c6dfff65efba88ea483d49bdbe478ab7489f8b1a903ea22b6d30cfa57626ca9e","withdrawal_credentials":"0x010000000000000000000000d944cf00517e2dd8d00bd5c4ea1ec45cf3ec52db","effective_balance":"32000000000","slashed":false,"activation_eligibility_epoch":"0","activation_epoch":"0","exit_epoch":"18446744073709551615","withdrawable_epoch":"18446744073709551615"}}]}`)
 				return
 			}
 		},
@@ -157,11 +167,11 @@ func TestGetValidatorCached(t *testing.T) {
 			case "/eth/v1/beacon/states/head/validators?id=100,101":
 				if once {
 					// Landmine to trigger an error if the cache is missed
-					fmt.Fprintf(w, "Not json!")
+					_, _ = fmt.Fprintf(w, "Not json!")
 					return
 				}
 				once = true
-				fmt.Fprintf(w, `{"execution_optimistic":false,"data":[{"index":"100","balance":"32005252956","status":"active_ongoing","validator":{"pubkey":"0xb5bc96b70df0dfcc252c9ff0d1b42cb6dc0d55f8defa474dc0a5c7e0402c241e2850fea9c582e276b638b3c2c3a5ec55","withdrawal_credentials":"0x010000000000000000000000801e880e2e9aa87b20c9cc9ebf7375adb11eac21","effective_balance":"32000000000","slashed":false,"activation_eligibility_epoch":"0","activation_epoch":"0","exit_epoch":"18446744073709551615","withdrawable_epoch":"18446744073709551615"}},{"index":"101","balance":"32005224938","status":"active_ongoing","validator":{"pubkey":"0xaa160542c2b1b9dbf5e11ca044067526c6dfff65efba88ea483d49bdbe478ab7489f8b1a903ea22b6d30cfa57626ca9e","withdrawal_credentials":"0x010000000000000000000000d944cf00517e2dd8d00bd5c4ea1ec45cf3ec52db","effective_balance":"32000000000","slashed":false,"activation_eligibility_epoch":"0","activation_epoch":"0","exit_epoch":"18446744073709551615","withdrawable_epoch":"18446744073709551615"}}]}`)
+				_, _ = fmt.Fprintf(w, `{"execution_optimistic":false,"data":[{"index":"100","balance":"32005252956","status":"active_ongoing","validator":{"pubkey":"0xb5bc96b70df0dfcc252c9ff0d1b42cb6dc0d55f8defa474dc0a5c7e0402c241e2850fea9c582e276b638b3c2c3a5ec55","withdrawal_credentials":"0x010000000000000000000000801e880e2e9aa87b20c9cc9ebf7375adb11eac21","effective_balance":"32000000000","slashed":false,"activation_eligibility_epoch":"0","activation_epoch":"0","exit_epoch":"18446744073709551615","withdrawable_epoch":"18446744073709551615"}},{"index":"101","balance":"32005224938","status":"active_ongoing","validator":{"pubkey":"0xaa160542c2b1b9dbf5e11ca044067526c6dfff65efba88ea483d49bdbe478ab7489f8b1a903ea22b6d30cfa57626ca9e","withdrawal_credentials":"0x010000000000000000000000d944cf00517e2dd8d00bd5c4ea1ec45cf3ec52db","effective_balance":"32000000000","slashed":false,"activation_eligibility_epoch":"0","activation_epoch":"0","exit_epoch":"18446744073709551615","withdrawable_epoch":"18446744073709551615"}}]}`)
 				return
 			}
 		},
@@ -217,7 +227,7 @@ func TestGetValidators(t *testing.T) {
 		h: func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.String() {
 			case "/eth/v2/debug/beacon/states/finalized":
-				fmt.Fprintln(w, mockBeaconState)
+				_, _ = fmt.Fprintln(w, mockBeaconState)
 				return
 			}
 		},
@@ -249,7 +259,7 @@ func TestOnHeadUpdate(t *testing.T) {
 		h: func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.String() {
 			case "/eth/v1/beacon/states/head/validators?id=100,101":
-				fmt.Fprintf(w, `{"execution_optimistic":false,"data":[{"index":"100","balance":"32005252956","status":"active_ongoing","validator":{"pubkey":"0xb5bc96b70df0dfcc252c9ff0d1b42cb6dc0d55f8defa474dc0a5c7e0402c241e2850fea9c582e276b638b3c2c3a5ec55","withdrawal_credentials":"0x010000000000000000000000801e880e2e9aa87b20c9cc9ebf7375adb11eac21","effective_balance":"32000000000","slashed":false,"activation_eligibility_epoch":"0","activation_epoch":"0","exit_epoch":"18446744073709551615","withdrawable_epoch":"18446744073709551615"}},{"index":"101","balance":"32005224938","status":"active_ongoing","validator":{"pubkey":"0xaa160542c2b1b9dbf5e11ca044067526c6dfff65efba88ea483d49bdbe478ab7489f8b1a903ea22b6d30cfa57626ca9e","withdrawal_credentials":"0x010000000000000000000000d944cf00517e2dd8d00bd5c4ea1ec45cf3ec52db","effective_balance":"32000000000","slashed":false,"activation_eligibility_epoch":"0","activation_epoch":"0","exit_epoch":"18446744073709551615","withdrawable_epoch":"18446744073709551615"}}]}`)
+				_, _ = fmt.Fprintf(w, `{"execution_optimistic":false,"data":[{"index":"100","balance":"32005252956","status":"active_ongoing","validator":{"pubkey":"0xb5bc96b70df0dfcc252c9ff0d1b42cb6dc0d55f8defa474dc0a5c7e0402c241e2850fea9c582e276b638b3c2c3a5ec55","withdrawal_credentials":"0x010000000000000000000000801e880e2e9aa87b20c9cc9ebf7375adb11eac21","effective_balance":"32000000000","slashed":false,"activation_eligibility_epoch":"0","activation_epoch":"0","exit_epoch":"18446744073709551615","withdrawable_epoch":"18446744073709551615"}},{"index":"101","balance":"32005224938","status":"active_ongoing","validator":{"pubkey":"0xaa160542c2b1b9dbf5e11ca044067526c6dfff65efba88ea483d49bdbe478ab7489f8b1a903ea22b6d30cfa57626ca9e","withdrawal_credentials":"0x010000000000000000000000d944cf00517e2dd8d00bd5c4ea1ec45cf3ec52db","effective_balance":"32000000000","slashed":false,"activation_eligibility_epoch":"0","activation_epoch":"0","exit_epoch":"18446744073709551615","withdrawable_epoch":"18446744073709551615"}}]}`)
 				return
 			}
 		},
@@ -294,7 +304,7 @@ func TestErrorPaths(t *testing.T) {
 		h: func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.String() {
 			case "/eth/v1/beacon/states/head/validators?id=100,101":
-				fmt.Fprintf(w, `{"execution_optimistic":false,"data":[{"index":"100","balance":"32005252956","status":"active_ongoing","validator":{"pubkey":"0xb5bc96b70df0dfcc252c9ff0d1b42cb6dc0d55f8defa474dc0a5c7e0402c241e2850fea9c582e276b638b3c2c3a5ec55","withdrawal_credentials":"0x000000000000000000000000801e880e2e9aa87b20c9cc9ebf7375adb11eac21","effective_balance":"32000000000","slashed":false,"activation_eligibility_epoch":"0","activation_epoch":"0","exit_epoch":"18446744073709551615","withdrawable_epoch":"18446744073709551615"}},{"index":"101","balance":"32005224938","status":"active_ongoing","validator":{"pubkey":"0xaa160542c2b1b9dbf5e11ca044067526c6dfff65efba88ea483d49bdbe478ab7489f8b1a903ea22b6d30cfa57626ca9e","withdrawal_credentials":"0x010000000000000000000000d944cf00517e2dd8d00bd5c4ea1ec45cf3ec52db","effective_balance":"32000000000","slashed":false,"activation_eligibility_epoch":"0","activation_epoch":"0","exit_epoch":"18446744073709551615","withdrawable_epoch":"18446744073709551615"}}]}`)
+				_, _ = fmt.Fprintf(w, `{"execution_optimistic":false,"data":[{"index":"100","balance":"32005252956","status":"active_ongoing","validator":{"pubkey":"0xb5bc96b70df0dfcc252c9ff0d1b42cb6dc0d55f8defa474dc0a5c7e0402c241e2850fea9c582e276b638b3c2c3a5ec55","withdrawal_credentials":"0x000000000000000000000000801e880e2e9aa87b20c9cc9ebf7375adb11eac21","effective_balance":"32000000000","slashed":false,"activation_eligibility_epoch":"0","activation_epoch":"0","exit_epoch":"18446744073709551615","withdrawable_epoch":"18446744073709551615"}},{"index":"101","balance":"32005224938","status":"active_ongoing","validator":{"pubkey":"0xaa160542c2b1b9dbf5e11ca044067526c6dfff65efba88ea483d49bdbe478ab7489f8b1a903ea22b6d30cfa57626ca9e","withdrawal_credentials":"0x010000000000000000000000d944cf00517e2dd8d00bd5c4ea1ec45cf3ec52db","effective_balance":"32000000000","slashed":false,"activation_eligibility_epoch":"0","activation_epoch":"0","exit_epoch":"18446744073709551615","withdrawable_epoch":"18446744073709551615"}}]}`)
 				return
 			}
 		},

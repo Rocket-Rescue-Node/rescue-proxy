@@ -222,7 +222,9 @@ func (s *SqliteCache) init() error {
 		if err != nil {
 			return err
 		}
-		defer src.Close()
+		defer func() {
+			_ = src.Close()
+		}()
 
 		err = cloneSqlDB(s.db, src)
 		if err != nil {
@@ -297,7 +299,9 @@ func (s *SqliteCache) serialize() error {
 	if err != nil {
 		return err
 	}
-	defer dst.Close()
+	defer func() {
+		_ = dst.Close()
+	}()
 
 	return cloneSqlDB(dst, s.db)
 }
@@ -389,7 +393,7 @@ func (s *SqliteCache) getNodeInfo(nodeAddr common.Address) (*nodeInfo, error) {
 }
 
 func (s *SqliteCache) addNodeInfo(nodeAddr common.Address, node *nodeInfo) error {
-	var inSP int = 0
+	var inSP = 0
 
 	if node.inSmoothingPool {
 		inSP = 1
@@ -565,16 +569,16 @@ func (s *SqliteCache) deinit() error {
 		return err
 	}
 
-	s.getMinipoolStmt.Close()
-	s.getNodeStmt.Close()
-	s.getHighestBlockStmt.Close()
-	s.setMinipoolStmt.Close()
-	s.setNodeStmt.Close()
-	s.setHighestBlockStmt.Close()
-	s.forEachNodeStmt.Close()
-	s.addOdaoNodeStmt.Close()
-	s.delOdaoNodeStmt.Close()
-	s.forEachOdaoNodeStmt.Close()
-	s.db.Close()
+	_ = s.getMinipoolStmt.Close()
+	_ = s.getNodeStmt.Close()
+	_ = s.getHighestBlockStmt.Close()
+	_ = s.setMinipoolStmt.Close()
+	_ = s.setNodeStmt.Close()
+	_ = s.setHighestBlockStmt.Close()
+	_ = s.forEachNodeStmt.Close()
+	_ = s.addOdaoNodeStmt.Close()
+	_ = s.delOdaoNodeStmt.Close()
+	_ = s.forEachOdaoNodeStmt.Close()
+	_ = s.db.Close()
 	return nil
 }

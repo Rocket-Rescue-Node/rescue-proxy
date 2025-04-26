@@ -242,7 +242,10 @@ func (c *CachingConsensusLayer) GetValidators() ([]*apiv1.Validator, error) {
 
 // Deinit shuts down the consensus layer client
 func (c *CachingConsensusLayer) Deinit() {
-	c.validatorCache.Close()
+	err := c.validatorCache.Close()
+	if err != nil {
+		c.logger.Info("Error closing validator cache", zap.Error(err))
+	}
 	c.disconnect()
 	c.logger.Info("HTTP Client Disconnected from the BN")
 }
