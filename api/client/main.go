@@ -42,7 +42,9 @@ func main() {
 		os.Exit(1)
 		return
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	c := pb.NewApiClient(conn)
 

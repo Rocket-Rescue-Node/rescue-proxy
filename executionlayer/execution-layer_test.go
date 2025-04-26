@@ -92,7 +92,9 @@ func (e *elTest) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	defer c.Close()
+	defer func() {
+		_ = c.Close()
+	}()
 	for {
 		mt, data, err := c.ReadMessage()
 		if err != nil {

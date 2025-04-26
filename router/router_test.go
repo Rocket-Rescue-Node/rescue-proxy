@@ -43,7 +43,7 @@ const responseString = "curiouser and curiouser"
 func (m *mockBeaconHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	m.t.Log("handling ", r.URL)
 	w.WriteHeader(200)
-	fmt.Fprintln(w, responseString)
+	_, _ = fmt.Fprintln(w, responseString)
 }
 
 func setup(t *testing.T, errs chan error) routerTest {

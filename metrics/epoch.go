@@ -42,7 +42,7 @@ func OnHead(epoch uint64) {
 
 func ObserveSoloValidator(node common.Address, pubkey rptypes.ValidatorPubkey) {
 	registry.Counter("observed_solo_validator").Inc()
-	var nodeMap *sync.Map = &sync.Map{}
+	var nodeMap = &sync.Map{}
 
 	epoch := &epochs[atomic.LoadUint64(&currentIdx)]
 
@@ -53,7 +53,7 @@ func ObserveSoloValidator(node common.Address, pubkey rptypes.ValidatorPubkey) {
 
 func ObserveValidator(node common.Address, pubkey rptypes.ValidatorPubkey) {
 	registry.Counter("observed_validator").Inc()
-	var nodeMap *sync.Map = &sync.Map{}
+	var nodeMap = &sync.Map{}
 
 	epoch := &epochs[atomic.LoadUint64(&currentIdx)]
 
