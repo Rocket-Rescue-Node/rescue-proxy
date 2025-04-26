@@ -1,6 +1,6 @@
 module github.com/Rocket-Rescue-Node/rescue-proxy
 
-go 1.21
+go 1.24
 
 require (
 	github.com/Rocket-Rescue-Node/credentials v0.0.0-20240224174210-626742fc699e
