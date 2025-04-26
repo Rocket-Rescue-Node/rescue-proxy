@@ -135,8 +135,8 @@ func TestGetValidatorInfo(t *testing.T) {
 	}
 
 	for _, v := range validatorInfo {
-		if !v.Is0x01 {
-			t.Fatal("Validator was not identified as 0x01")
+		if !v.IsELWithdrawal {
+			t.Fatal("Validator was not identified as 0x01 nor 0x02")
 		}
 
 		if !strings.EqualFold(v.WithdrawalAddress.String(), "0x801e880e2e9aa87b20c9cc9ebf7375adb11eac21") &&
@@ -199,8 +199,8 @@ func TestGetValidatorCached(t *testing.T) {
 		}
 
 		for _, v := range validatorInfo {
-			if !v.Is0x01 {
-				t.Fatal("Validator was not identified as 0x01")
+			if !v.IsELWithdrawal {
+				t.Fatal("Validator was not identified as 0x01 nor 0x02")
 			}
 
 			if !strings.EqualFold(v.WithdrawalAddress.String(), "0x801e880e2e9aa87b20c9cc9ebf7375adb11eac21") &&

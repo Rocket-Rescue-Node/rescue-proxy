@@ -128,8 +128,9 @@ func (a *API) updateCache() error {
 
 		creds := validator.Validator.WithdrawalCredentials
 
-		// Check that the creds are 0x01
-		if !bytes.HasPrefix(creds, []byte{0x01}) {
+		// Check that the creds are an EL address
+		credsAreValid := bytes.HasPrefix(creds, []byte{0x01}) || bytes.HasPrefix(creds, []byte{0x02})
+		if !credsAreValid {
 			continue
 		}
 

@@ -70,7 +70,7 @@ func (m *MockConsensusLayer) AddExecutionValidators(e *MockExecutionLayer, seed 
 			Status:  randValidatorState(gen),
 			Validator: &phase0.Validator{
 				PublicKey:             phase0.BLSPubKey(pubkey),
-				WithdrawalCredentials: rand0x01Credentials(gen),
+				WithdrawalCredentials: randELCredentials(gen),
 				EffectiveBalance:      balance,
 				Slashed:               gen.Int63n(10) == 0,
 			},
@@ -92,8 +92,10 @@ func (m *MockConsensusLayer) GetValidatorInfo(idx []string) (map[string]*consens
 			Pubkey: rptypes.BytesToValidatorPubkey(v.Validator.PublicKey[:]),
 		}
 
-		if bytes.HasPrefix(v.Validator.WithdrawalCredentials, []byte{0x01}) {
-			out[k].Is0x01 = true
+		if bytes.HasPrefix(v.Validator.WithdrawalCredentials, []byte{0x01}) ||
+			bytes.HasPrefix(v.Validator.WithdrawalCredentials, []byte{0x02}) {
+
+			out[k].IsELWithdrawal = true
 			out[k].WithdrawalAddress = common.BytesToAddress(v.Validator.WithdrawalCredentials)
 		}
 	}

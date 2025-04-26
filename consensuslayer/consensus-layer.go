@@ -48,12 +48,6 @@ type CachingConsensusLayer struct {
 	slotsPerEpoch uint64
 }
 
-type ValidatorInfo struct {
-	Pubkey            rptypes.ValidatorPubkey
-	WithdrawalAddress common.Address
-	Is0x01            bool
-}
-
 // NewConsensusLayer creates a new consensus layer client using the provided url and logger
 func NewCachingConsensusLayer(bnURL *url.URL, logger *zap.Logger, forceJSON bool) *CachingConsensusLayer {
 	out := &CachingConsensusLayer{}
@@ -200,12 +194,12 @@ func (c *CachingConsensusLayer) GetValidatorInfo(validatorIndices []string) (map
 			Pubkey: pubkey,
 		}
 
-		if !bytes.HasPrefix(withdrawalCredentials, []byte{0x01}) {
+		if bytes.HasPrefix(withdrawalCredentials, []byte{0x00}) {
 			c.logger.Warn("0x00 Validator seen", zap.Binary("pubkey", pubkey.Bytes()))
 		} else {
 			// BytesToAddress will cut off all but the last 20 bytes
 			out[strIndex].WithdrawalAddress = common.BytesToAddress(withdrawalCredentials)
-			out[strIndex].Is0x01 = true
+			out[strIndex].IsELWithdrawal = true
 		}
 
 		// Add it to the cache. Ignore errors, we can always look the key up later
