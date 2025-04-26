@@ -43,6 +43,8 @@ jobs:
         with:
           name: code-coverage-html
           path: ./cover.html
+          if-no-files-found: error
+          include-hidden-files: true
         id: html-upload-step
     outputs:
       artifact-url: ${{ steps.html-upload-step.outputs.artifact-url }}
