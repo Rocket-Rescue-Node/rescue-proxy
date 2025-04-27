@@ -1,4 +1,4 @@
-FROM golang:1.24-buster AS build
+FROM golang:1.24-bookworm AS build
 
 RUN apt-get update; apt-get install -y make protobuf-compiler gcc libc-dev
 RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.6
@@ -10,7 +10,7 @@ WORKDIR /src
 RUN make
 RUN make ./api-client
 
-FROM debian:buster
+FROM debian:bookworm
 COPY --from=build /src/rescue-proxy /bin/rescue-proxy
 COPY --from=build /src/api-client /bin/api-client
 ENTRYPOINT ["/bin/rescue-proxy"]
