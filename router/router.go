@@ -154,7 +154,7 @@ func (pr *ProxyRouter) prepareBeaconProposerGuard(proposers gbp.PrepareBeaconPro
 
 		if rpInfo == nil {
 			// Solo validators may only use their withdrawal credential in prepare_beacon_proposer
-			if !validatorInfo.Is0x01 ||
+			if !validatorInfo.IsELWithdrawal ||
 				!strings.EqualFold(validatorInfo.WithdrawalAddress.String(), proposer.FeeRecipient) {
 
 				pr.m.Counter("prepare_beacon_incorrect_fee_recipient_solo").Inc()

@@ -333,7 +333,7 @@ func TestRouterPBPSolo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Find a validator that is 0x01
+	// Find a validator that is 0x01 or 0x02
 	var fr common.Address
 	var index phase0.ValidatorIndex
 	for _, v := range valis {
@@ -349,7 +349,9 @@ func TestRouterPBPSolo(t *testing.T) {
 
 		withdrawalCreds := v.Validator.WithdrawalCredentials
 
-		if bytes.HasPrefix(withdrawalCreds, []byte{0x01}) {
+		if bytes.HasPrefix(withdrawalCreds, []byte{0x01}) ||
+			bytes.HasPrefix(withdrawalCreds, []byte{0x02}) {
+
 			fr = common.BytesToAddress(withdrawalCreds)
 			index = v.Index
 			break
@@ -448,7 +450,7 @@ func TestRouterPBPSoloBadFeeRecipient(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Find a validator that is 0x01
+	// Find a validator that is 0x01 or 0x02
 	var index phase0.ValidatorIndex
 	for _, v := range valis {
 
@@ -462,7 +464,9 @@ func TestRouterPBPSoloBadFeeRecipient(t *testing.T) {
 		}
 		withdrawalCreds := v.Validator.WithdrawalCredentials
 
-		if bytes.HasPrefix(withdrawalCreds, []byte{0x01}) {
+		if bytes.HasPrefix(withdrawalCreds, []byte{0x01}) ||
+			bytes.HasPrefix(withdrawalCreds, []byte{0x02}) {
+
 			index = v.Index
 			break
 		}
