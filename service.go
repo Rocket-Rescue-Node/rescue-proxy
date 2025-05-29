@@ -88,10 +88,11 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 
 	// Connect to and initialize the execution layer
 	el := &executionlayer.CachingExecutionLayer{
-		ECURL:             s.Config.ExecutionURL,
-		RocketStorageAddr: s.Config.RocketStorageAddr,
-		Logger:            s.Logger,
-		CachePath:         s.Config.CachePath,
+		ECURL:                s.Config.ExecutionURL,
+		RocketStorageAddr:    s.Config.RocketStorageAddr,
+		Logger:               s.Logger,
+		CachePath:            s.Config.CachePath,
+		SWVaultsRegistryAddr: s.Config.SWVaultsRegistryAddr,
 	}
 	s.el = el
 	// Init() blocks until the cache is warmed up. This is good, we don't want to

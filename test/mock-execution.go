@@ -96,3 +96,7 @@ func (m *MockExecutionLayer) REthAddress() *common.Address {
 func (m *MockExecutionLayer) ValidateEIP1271(ctx context.Context, dataHash common.Hash, signature []byte, address common.Address) (bool, error) {
 	return true, nil
 }
+
+func (m *MockExecutionLayer) StakewiseFeeRecipient(ctx context.Context, address common.Address) (*common.Address, error) {
+	return nil, nil
+}

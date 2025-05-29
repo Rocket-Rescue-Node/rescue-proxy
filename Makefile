@@ -15,6 +15,13 @@ protos: $(PROTO_DEPS)
 	protoc -I=./$(PROTO_IN) --go_out=paths=source_relative:$(PROTO_OUT) \
 		--go-grpc_out=paths=source_relative:$(PROTO_OUT) $(PROTO_DEPS)
 
+SW_DIR := executionlayer/stakewise
+ABI_DIR := $(SW_DIR)/abis
+$(SW_DIR)/vaults-registry-encoding.go: $(ABI_DIR)/vaults-registry.json
+	go run github.com/ethereum/go-ethereum/cmd/abigen@v1.15.11 --v2 --abi $< --pkg stakewise --type vaultsRegistry --out $@
+$(SW_DIR)/eth-priv-vault-encoding.go: $(ABI_DIR)/eth-priv-vault.json
+	go run github.com/ethereum/go-ethereum/cmd/abigen@v1.15.11 --v2 --abi $< --pkg stakewise --type ethPrivVault --out $@
+
 .PHONY: clean
 clean:
 	rm -f pb/*
