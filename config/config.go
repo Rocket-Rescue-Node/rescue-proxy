@@ -49,6 +49,7 @@ type Config struct {
 	GRPCTLSCertFile      string
 	GRPCTLSKeyFile       string
 	RocketStorageAddr    string
+	SWVaultsRegistryAddr string
 	CredentialSecrets    CredentialSecrets
 	CachePath            string
 	EnableSoloValidators bool
@@ -81,6 +82,7 @@ Use 'dd if=/dev/urandom bs=4 count=8 | base64' if you need to generate a new sec
 	cachePathFlag := flag.String("cache-path", "", "A path to cache EL data in. Leave blank to disable caching.")
 	enableSoloValidatorsFlag := flag.Bool("enable-solo-validators", true, "Whether or not to allow solo validators access.")
 	forceBNJSONFlag := flag.Bool("force-bn-json", false, "Disables SSZ in the BN.")
+	swiseVaultsRegistryAddrFlag := flag.String("swise-vaults-registry-addr", "0x3a0008a588772446f6e656133C2D5029CC4FC20E", "Address of the Stakewise Vaults Registry contract. Defaults to mainnet. Pass empty string to disable.")
 
 	flag.Parse()
 
@@ -173,5 +175,6 @@ Use 'dd if=/dev/urandom bs=4 count=8 | base64' if you need to generate a new sec
 	config.EnableSoloValidators = *enableSoloValidatorsFlag
 	config.Debug = *debug
 	config.ForceBNJSON = *forceBNJSONFlag
+	config.SWVaultsRegistryAddr = *swiseVaultsRegistryAddrFlag
 	return config
 }

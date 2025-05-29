@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer/stakewise"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -49,6 +50,7 @@ type ExecutionLayer interface {
 	ForEachOdaoNode(ForEachNodeClosure) error
 	GetRPInfo(rptypes.ValidatorPubkey) (*RPInfo, error)
 	REthAddress() *common.Address
+	StakewiseFeeRecipient(ctx context.Context, address common.Address) (*common.Address, error)
 	ValidateEIP1271(ctx context.Context, dataHash common.Hash, signature []byte, address common.Address) (bool, error)
 }
 
@@ -57,9 +59,10 @@ type ExecutionLayer interface {
 // that fee recipients are 'correct'.
 type CachingExecutionLayer struct {
 	// Fields passed in by the constructor which are later referenced
-	Logger            *zap.Logger
-	ECURL             *url.URL
-	RocketStorageAddr string
+	Logger               *zap.Logger
+	ECURL                *url.URL
+	RocketStorageAddr    string
+	SWVaultsRegistryAddr string
 
 	// The rocketpool-go client and its ethclient instance
 
@@ -93,6 +96,9 @@ type CachingExecutionLayer struct {
 	// Somewhere to store chain data we care about
 	CachePath string
 	cache     Cache
+
+	// Checkers for vaults and mev escrow
+	vaultsChecker *stakewise.VaultsChecker
 
 	// ethclient subscription needs to be manually closed on shutdown
 	ethclientShutdownCb func()
@@ -529,6 +535,11 @@ func (e *CachingExecutionLayer) Init() error {
 		return err
 	}
 
+	// Set up the vaults checker
+	if e.SWVaultsRegistryAddr != "" {
+		e.vaultsChecker = stakewise.NewVaultsChecker(e.client, common.HexToAddress(e.SWVaultsRegistryAddr))
+	}
+
 	// First, get the current block
 	ctx, cancel := context.WithTimeout(e.ctx, 5*time.Second)
 	defer cancel()
@@ -830,4 +841,11 @@ func (e *CachingExecutionLayer) ValidateEIP1271(ctx context.Context, dataHash co
 	// invalid signatures return 4 bytes that do not match the magic
 	expectedReturnValue := [4]byte{0x16, 0x26, 0xba, 0x7e}
 	return bytes.Equal(data, expectedReturnValue[:]), nil
+}
+
+func (e *CachingExecutionLayer) StakewiseFeeRecipient(ctx context.Context, address common.Address) (*common.Address, error) {
+	if e.vaultsChecker == nil {
+		return e.vaultsChecker.IsVault(ctx, address)
+	}
+	return nil, nil
 }

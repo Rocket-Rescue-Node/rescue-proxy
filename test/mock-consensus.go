@@ -60,9 +60,9 @@ func (m *MockConsensusLayer) AddExecutionValidators(e *MockExecutionLayer, seed 
 	chaos := rand.NewSource(int64(seedInt))
 
 	gen := rand.New(chaos)
-	i := 0
+	i := len(m.validators)
 	for pubkey := range e.VMap {
-		idx := len(m.validators) + 100 + i
+		idx := 100 + i
 		balance := phase0.Gwei(gen.Int63())
 		m.validators[fmt.Sprint(idx)] = &apiv1.Validator{
 			Index:   phase0.ValidatorIndex(idx),
@@ -73,6 +73,28 @@ func (m *MockConsensusLayer) AddExecutionValidators(e *MockExecutionLayer, seed 
 				WithdrawalCredentials: randELCredentials(gen),
 				EffectiveBalance:      balance,
 				Slashed:               gen.Int63n(10) == 0,
+			},
+		}
+		m.Indices[pubkey] = fmt.Sprint(idx)
+		i++
+	}
+
+	for vault := range e.SWVaults {
+		// add additional validators to the end of the list
+		idx := 100 + i
+		balance := phase0.Gwei(gen.Int63())
+		withdrawalCreds := [32]byte{}
+		withdrawalCreds[0] = 0x01
+		copy(withdrawalCreds[12:], vault[:])
+		pubkey := randPubkey(gen)
+		m.validators[fmt.Sprint(idx)] = &apiv1.Validator{
+			Index:   phase0.ValidatorIndex(idx),
+			Balance: balance,
+			Status:  randValidatorState(gen),
+			Validator: &phase0.Validator{
+				PublicKey:             phase0.BLSPubKey(pubkey),
+				WithdrawalCredentials: withdrawalCreds[:],
+				EffectiveBalance:      balance,
 			},
 		}
 		m.Indices[pubkey] = fmt.Sprint(idx)

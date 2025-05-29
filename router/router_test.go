@@ -72,7 +72,7 @@ func setup(t *testing.T, errs chan error) routerTest {
 	}
 
 	cl := test.NewMockConsensusLayer(100, t.Name())
-	el := test.NewMockExecutionLayer(50, 5, 100, t.Name())
+	el := test.NewMockExecutionLayer(50, 5, 100, 2, t.Name())
 
 	cl.AddExecutionValidators(el, t.Name())
 
@@ -349,6 +349,20 @@ func TestRouterPBPSolo(t *testing.T) {
 
 		withdrawalCreds := v.Validator.WithdrawalCredentials
 
+		// Make sure it's not a sw validator
+		swVaults := rt.pr.EL.(*test.MockExecutionLayer).SWVaults
+		isSW := false
+		for vault := range swVaults {
+			if bytes.Equal(withdrawalCreds[12:], vault[:]) {
+				isSW = true
+
+				break
+			}
+		}
+		if isSW {
+			continue
+		}
+
 		if bytes.HasPrefix(withdrawalCreds, []byte{0x01}) ||
 			bytes.HasPrefix(withdrawalCreds, []byte{0x02}) {
 
@@ -462,7 +476,22 @@ func TestRouterPBPSoloBadFeeRecipient(t *testing.T) {
 		if info != nil {
 			continue
 		}
+
 		withdrawalCreds := v.Validator.WithdrawalCredentials
+
+		// Make sure it's not a sw validator
+		swVaults := rt.pr.EL.(*test.MockExecutionLayer).SWVaults
+		isSW := false
+		for vault := range swVaults {
+			if bytes.Equal(withdrawalCreds[12:], vault[:]) {
+				isSW = true
+
+				break
+			}
+		}
+		if isSW {
+			continue
+		}
 
 		if bytes.HasPrefix(withdrawalCreds, []byte{0x01}) ||
 			bytes.HasPrefix(withdrawalCreds, []byte{0x02}) {
@@ -568,6 +597,100 @@ func TestRouterPBPRP(t *testing.T) {
 	}
 	if strings.TrimSpace(string(body)) != responseString {
 		t.Fatal("unexpected response", string(body))
+	}
+
+	rt.pr.Stop(rt.ctx)
+
+	err = <-errs
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRouterPBPSW(t *testing.T) {
+	errs := make(chan error)
+	rt := setup(t, errs)
+
+	go rt.start()
+
+	// Grab a sw validator
+	swVaults := rt.pr.EL.(*test.MockExecutionLayer).SWVaults
+	var vault common.Address
+	var fr common.Address
+	for v, f := range swVaults {
+		vault = v
+		fr = f
+		// Just get the first one.
+		break
+	}
+
+	// Find the corresponding validator in the mock consensus layer
+	validators, err := rt.pr.CL.GetValidators()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+
+	var pubkey rptypes.ValidatorPubkey
+	for _, v := range validators {
+		if bytes.Equal(v.Validator.WithdrawalCredentials[12:], vault[:]) {
+			found = true
+			pubkey = rptypes.BytesToValidatorPubkey(v.Validator.PublicKey[:])
+			break
+		}
+	}
+
+	if !found {
+		t.Fatalf("couldn't find validator in mock with 0x01 credential set to %x", vault[:])
+	}
+
+	mockIndices := rt.pr.CL.(*test.MockConsensusLayer).Indices
+
+	username, pw := rt.validAuth(t, false)
+	resp, err := http.Post(
+		"http://"+username+":"+pw+"@"+rt.pr.Addr+"/eth/v1/validator/prepare_beacon_proposer",
+		"application/json",
+		strings.NewReader(fmt.Sprintf(`
+			[{
+				"validator_index": "%s",
+				"fee_recipient": "%s"
+			}]`,
+			mockIndices[pubkey],
+			fr.String(),
+		)),
+	)
+	if err != nil {
+		t.Fatal("unexpected error", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatal("unexpected status code", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(body)) != responseString {
+		t.Fatal("unexpected response", string(body))
+	}
+
+	resp, err = http.Post(
+		"http://"+username+":"+pw+"@"+rt.pr.Addr+"/eth/v1/validator/prepare_beacon_proposer",
+		"application/json",
+		strings.NewReader(fmt.Sprintf(`
+			[{
+				"validator_index": "%s",
+				"fee_recipient": "%s"
+			}]`,
+			mockIndices[pubkey],
+			"0xabcf8e0d4e9587369b2301d0790347320302cc09",
+		)),
+	)
+	if err != nil {
+		t.Fatal("unexpected error", err)
+	}
+	if resp.StatusCode != 409 {
+		t.Fatal("unexpected status code", resp.StatusCode)
 	}
 
 	rt.pr.Stop(rt.ctx)
