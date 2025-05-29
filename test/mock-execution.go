@@ -17,9 +17,10 @@ type MockExecutionLayer struct {
 	odaoNodes []common.Address
 	VMap      map[rptypes.ValidatorPubkey]*executionlayer.RPInfo
 	REth      common.Address
+	SWVaults  map[common.Address]common.Address
 }
 
-func NewMockExecutionLayer(numNodes int, numOdaoNodes int, numValidators int, seed string) *MockExecutionLayer {
+func NewMockExecutionLayer(numNodes int, numOdaoNodes int, numValidators int, numSWValidators int, seed string) *MockExecutionLayer {
 	hash := md5.Sum([]byte(seed))
 	// Use the low 8 bytes as the seed for rand
 	seedInt := binary.LittleEndian.Uint64(hash[len(hash)-8:])
@@ -55,6 +56,13 @@ func NewMockExecutionLayer(numNodes int, numOdaoNodes int, numValidators int, se
 		// Pick a random node
 		info := out.nodes[gen.Int31n(int32(numNodes))]
 		out.VMap[randPubkey(gen)] = info
+	}
+
+	out.SWVaults = make(map[common.Address]common.Address, numSWValidators)
+	for range numSWValidators {
+		address := randAddress(gen)
+		fr := randAddress(gen)
+		out.SWVaults[address] = fr
 	}
 
 	return out
@@ -98,5 +106,8 @@ func (m *MockExecutionLayer) ValidateEIP1271(ctx context.Context, dataHash commo
 }
 
 func (m *MockExecutionLayer) StakewiseFeeRecipient(ctx context.Context, address common.Address) (*common.Address, error) {
+	if fr, ok := m.SWVaults[address]; ok {
+		return &fr, nil
+	}
 	return nil, nil
 }

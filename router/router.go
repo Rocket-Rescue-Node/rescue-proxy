@@ -162,7 +162,7 @@ func (pr *ProxyRouter) rocketPoolPBPGuard(authInfo authInfo, validatorInfo *cons
 	)
 }
 
-func (pr *ProxyRouter) stakewisePBPGuard(authInfo authInfo, validatorInfo *consensuslayer.ValidatorInfo, feeRecipient string) (gbp.AuthenticationStatus, error) {
+func (pr *ProxyRouter) stakewisePBPGuard(_ authInfo, validatorInfo *consensuslayer.ValidatorInfo, feeRecipient string) (gbp.AuthenticationStatus, error) {
 	// Create a context with a 10 second timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

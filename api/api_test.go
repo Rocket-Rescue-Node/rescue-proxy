@@ -62,7 +62,7 @@ func setup(t *testing.T) apiTest {
 func TestApiStartStop(t *testing.T) {
 
 	at := setup(t)
-	el := test.NewMockExecutionLayer(50, 5, 200, t.Name())
+	el := test.NewMockExecutionLayer(50, 5, 200, 0, t.Name())
 	cl := test.NewMockConsensusLayer(400, t.Name())
 	a := API{
 		EL:     el,
