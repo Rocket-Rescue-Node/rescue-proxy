@@ -8,6 +8,8 @@ github.com/Rocket-Rescue-Node/credentials v0.0.0-20240224174210-626742fc699e h1:
 github.com/Rocket-Rescue-Node/credentials v0.0.0-20240224174210-626742fc699e/go.mod h1:rInGId8V6ezrcyrNTeuWkfcSKD9fF97Mguso/x7ahJs=
 github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.1 h1:MyGF9V64MATdqFI2nri8u1PWgGPOlCxqkxfiN0CgAiY=
 github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.1/go.mod h1:p4CMEZjb+V4hI6vaAoOTplAi6pZLHCtnw163NdMztgo=
+github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.2-0.20250612230554-6ac8c78a0085 h1:rZOyJTg4zBLFugoYeWkU9g3T71gP/VLguYlBvUhnXpc=
+github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.2-0.20250612230554-6ac8c78a0085/go.mod h1:zJaykZOo88BUx57DIKElyBASzA2MSmFNJgq/n7lwKcY=
 github.com/VictoriaMetrics/fastcache v1.12.2 h1:N0y9ASrJ0F6h0QaC3o6uJb3NIZ9VKLjCM7NQbSmF7WI=
 github.com/VictoriaMetrics/fastcache v1.12.2/go.mod h1:AmC+Nzz1+3G2eCPapF6UcsnkThDcMsQicp4xDukwJYI=
 github.com/allegro/bigcache/v3 v3.1.0 h1:H2Vp8VOvxcrB91o86fUSVJFqeuz8kpyyB02eH3bSzwk=

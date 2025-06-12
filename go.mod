@@ -6,7 +6,7 @@ toolchain go1.24.2
 
 require (
 	github.com/Rocket-Rescue-Node/credentials v0.0.0-20240224174210-626742fc699e
-	github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.1
+	github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.2-0.20250612230554-6ac8c78a0085
 	github.com/allegro/bigcache/v3 v3.1.0
 	github.com/attestantio/go-eth2-client v0.25.0
 	github.com/ethereum/go-ethereum v1.15.11
