@@ -490,6 +490,9 @@ func (pr *ProxyRouter) Init() {
 		GRPCAuthenticator:          pr.grpcAuthenticate,
 		PrepareBeaconProposerGuard: pr.prepareBeaconProposerGuard,
 		RegisterValidatorGuard:     pr.registerValidatorGuard,
+		// A single validator consumes 425 bytes of prepare_beacon_proposer, which is the largest request body size.
+		// We'll set the max to 1MB, which is enough for over 2000 validators in one request.
+		MaxRequestBodySize: 1024 * 1024,
 	}
 	pr.gbp.TLS.CertFile = pr.TLSCertFile
 	pr.gbp.TLS.KeyFile = pr.TLSKeyFile
