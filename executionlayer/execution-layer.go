@@ -844,7 +844,7 @@ func (e *CachingExecutionLayer) ValidateEIP1271(ctx context.Context, dataHash co
 }
 
 func (e *CachingExecutionLayer) StakewiseFeeRecipient(ctx context.Context, address common.Address) (*common.Address, error) {
-	if e.vaultsChecker == nil {
+	if e.vaultsChecker != nil {
 		return e.vaultsChecker.IsVault(ctx, address)
 	}
 	return nil, nil
