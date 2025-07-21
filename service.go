@@ -71,17 +71,17 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 	// This initializes metrics, so do it first.
 	s.admin = new(admin.AdminApi)
 	if err := s.admin.Init("rescue_proxy"); err != nil {
-		s.errs <- fmt.Errorf("unable to init admin api (metrics): %v", err)
+		s.errs <- fmt.Errorf("unable to init admin api (metrics): %w", err)
 		return
 	}
 	if listener, err := net.Listen("tcp", s.Config.AdminListenAddr); err != nil {
-		s.errs <- fmt.Errorf("unable to init admin api (metrics): %v", err)
+		s.errs <- fmt.Errorf("unable to init admin api (metrics): %w", err)
 		return
 	} else {
 		go func() {
 			s.Logger.Info("Starting admin API", zap.String("addr", s.Config.AdminListenAddr))
 			if err := s.admin.Serve(listener); err != nil && err != http.ErrServerClosed {
-				s.errs <- err
+				s.errs <- fmt.Errorf("unable to init admin api (metrics): %w", err)
 			}
 		}()
 	}
@@ -98,14 +98,14 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 	// Init() blocks until the cache is warmed up. This is good, we don't want to
 	// start accepting http requests on the proxy until we're ready to handle them.
 	if err := el.Init(); err != nil {
-		s.errs <- fmt.Errorf("unable to init Execution Layer client: %v", err)
+		s.errs <- fmt.Errorf("unable to init Execution Layer client: %w", err)
 		return
 	}
 	// After Init() we still have to call Start() to subscribe to new blocks
 	go func() {
 		s.Logger.Info("Starting EL monitor")
 		if err := el.Start(); err != nil {
-			s.errs <- fmt.Errorf("EL error: %v", err)
+			s.errs <- fmt.Errorf("EL error: %w", err)
 		}
 	}()
 
@@ -122,7 +122,7 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 		el.Stop()
 		// Only write the error to the channel after so we don't panic while writing
 		// the cache to disk
-		s.errs <- fmt.Errorf("unable to init Consensus Layer client: %v", err)
+		s.errs <- fmt.Errorf("unable to init Consensus Layer client: %w", err)
 		return
 	}
 
@@ -144,7 +144,7 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 	go func() {
 		s.Logger.Info("Starting http server", zap.String("url", s.Config.ListenAddr))
 		if err := s.r.Start(); err != nil {
-			s.errs <- err
+			s.errs <- fmt.Errorf("unable to start http server: %w", err)
 		}
 	}()
 
@@ -158,12 +158,12 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 
 		listener, err := net.Listen("tcp", s.Config.APIListenAddr)
 		if err != nil {
-			s.errs <- err
+			s.errs <- fmt.Errorf("unable to listen on api endpoint: %w", err)
 			return
 		}
 
 		if err := s.a.Init(listener); err != nil {
-			s.errs <- err
+			s.errs <- fmt.Errorf("unable to init api: %w", err)
 		}
 	}()
 
