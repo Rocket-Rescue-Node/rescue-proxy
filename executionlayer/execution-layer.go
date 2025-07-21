@@ -522,7 +522,7 @@ func (e *CachingExecutionLayer) Init() error {
 	e.ctx, e.shutdown = context.WithCancel(context.Background())
 
 	if err := e.cache.init(); err != nil {
-		return err
+		return fmt.Errorf("unable to init cache: %w", err)
 	}
 	cacheBlock := e.cache.getHighestBlock()
 
@@ -559,7 +559,7 @@ func (e *CachingExecutionLayer) Init() error {
 			zap.Int64("delta", delta.Int64()))
 		err = e.cache.reset()
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to reset cache: %w", err)
 		}
 
 		cacheBlock = big.NewInt(0)
@@ -626,7 +626,7 @@ func (e *CachingExecutionLayer) Init() error {
 		// Store the smoothing pool state / fee distributor in the node index
 		err = e.cache.addNodeInfo(addr, nodeInfo)
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to add node info: %w", err)
 		}
 
 		// Also grab their minipools
@@ -647,7 +647,7 @@ func (e *CachingExecutionLayer) Init() error {
 				}
 				err = e.cache.addMinipoolNode(pubkey, addr)
 				if err != nil {
-					return err
+					return fmt.Errorf("unable to add minipool node: %w", err)
 				}
 				return nil
 			})
@@ -668,7 +668,7 @@ func (e *CachingExecutionLayer) Init() error {
 
 		err = e.cache.addOdaoNode(member)
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to add odao node: %w", err)
 		}
 	}
 	e.Logger.Info("Found odao nodes to preload", zap.Int("count", len(odaoNodes)), zap.Int64("block", opts.BlockNumber.Int64()))
