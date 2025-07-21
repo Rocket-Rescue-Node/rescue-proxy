@@ -31,7 +31,6 @@ import (
 type ForEachNodeClosure func(common.Address) bool
 
 const reconnectRetries = 10
-const maxCacheAgeBlocks = 64
 
 type nodeInfo struct {
 	inSmoothingPool bool
@@ -517,7 +516,6 @@ func (e *CachingExecutionLayer) Init() error {
 	if err := e.cache.init(); err != nil {
 		return fmt.Errorf("unable to init cache: %w", err)
 	}
-	cacheBlock := e.cache.getHighestBlock()
 
 	e.client, err = ethclient.Dial(e.ECURL.String())
 	if err != nil {
@@ -539,23 +537,6 @@ func (e *CachingExecutionLayer) Init() error {
 	header, err := e.client.HeaderByNumber(ctx, nil)
 	if err != nil {
 		return err
-	}
-
-	// Subtract the cache's highest block from the current block
-	delta := big.NewInt(0)
-	delta.Sub(header.Number, cacheBlock)
-	if delta.Int64() < 0 || delta.Int64() > maxCacheAgeBlocks {
-		// Reset caches from the future and the distance past
-		e.Logger.Info("Cache is stale or from the future, resetting...",
-			zap.Int64("cache block", cacheBlock.Int64()),
-			zap.Int64("current block", header.Number.Int64()),
-			zap.Int64("delta", delta.Int64()))
-		err = e.cache.reset()
-		if err != nil {
-			return fmt.Errorf("unable to reset cache: %w", err)
-		}
-
-		cacheBlock = big.NewInt(0)
 	}
 
 	// Create opts to query state at the latest block
@@ -587,10 +568,6 @@ func (e *CachingExecutionLayer) Init() error {
 		return err
 	}
 
-	// If the cache is warm, skip the slow path
-	if cacheBlock.Cmp(big.NewInt(0)) != 0 {
-		return nil
-	}
 	e.Logger.Info("Warming up the cache")
 
 	// Get all nodes at the given block
