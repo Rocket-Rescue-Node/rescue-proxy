@@ -19,13 +19,12 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/rocket-pool/smartnode/bindings/dao/trustednode"
 	"github.com/rocket-pool/smartnode/bindings/minipool"
 	"github.com/rocket-pool/smartnode/bindings/node"
 	"github.com/rocket-pool/smartnode/bindings/rocketpool"
 	rptypes "github.com/rocket-pool/smartnode/bindings/types"
+	"github.com/rocket-pool/smartnode/bindings/utils/state"
 	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
 )
 
 type ForEachNodeClosure func(common.Address) bool
@@ -521,7 +520,8 @@ func (e *CachingExecutionLayer) Init() error {
 	if err != nil {
 		return err
 	}
-	e.rp, err = rocketpool.NewRocketPool(e.client, common.HexToAddress(e.RocketStorageAddr))
+	rocketStorageAddr := common.HexToAddress(e.RocketStorageAddr)
+	e.rp, err = rocketpool.NewRocketPool(e.client, rocketStorageAddr)
 	if err != nil {
 		return err
 	}
@@ -541,6 +541,16 @@ func (e *CachingExecutionLayer) Init() error {
 
 	// Create opts to query state at the latest block
 	opts := &bind.CallOpts{BlockNumber: header.Number}
+
+	// Get the state contracts
+	stateContracts, ok := stateContractsMap[rocketStorageAddr]
+	if !ok {
+		return fmt.Errorf("no state contracts found for rocket storage address: %s", rocketStorageAddr.String())
+	}
+	networkContracts, err := state.NewNetworkContracts(e.rp, stateContracts.MulticallAddress, stateContracts.StateManagerAddress, opts)
+	if err != nil {
+		return fmt.Errorf("unable to create network contracts: %w", err)
+	}
 
 	// Load contracts
 	e.rocketNodeManager, err = e.rp.GetContract("rocketNodeManager", opts)
@@ -571,77 +581,71 @@ func (e *CachingExecutionLayer) Init() error {
 	e.Logger.Info("Warming up the cache")
 
 	// Get all nodes at the given block
-	nodes, err := node.GetNodeAddresses(e.rp, opts)
+	nodes, err := state.GetAllNativeNodeDetails(e.rp, networkContracts)
 	if err != nil {
 		return err
 	}
-	e.Logger.Info("Found nodes to preload", zap.Int("count", len(nodes)), zap.Int64("block", opts.BlockNumber.Int64()))
+	e.Logger.Info("Loaded nodes", zap.Int("count", len(nodes)), zap.Int64("block", opts.BlockNumber.Int64()))
+
+	// Get all minipools at the given block
+	minipools, err := state.GetAllNativeMinipoolDetails(e.rp, networkContracts)
+	if err != nil {
+		return err
+	}
+	e.Logger.Info("Loaded minipools", zap.Int("count", len(minipools)), zap.Int64("block", opts.BlockNumber.Int64()))
+
+	// Create a node addr -> []*minipooldetails map
+	minipoolMap := make(map[common.Address][]*state.NativeMinipoolDetails)
+
+	// Iterate over the minipools and add them to the map
+	for _, minipool := range minipools {
+		minipoolMap[minipool.NodeAddress] = append(minipoolMap[minipool.NodeAddress], &minipool)
+	}
 
 	minipoolCount := 0
-	for _, addr := range nodes {
+	for _, nativeNodeDetails := range nodes {
 		// Allocate a pointer for this node
 		nodeInfo := &nodeInfo{}
-		// Determine their smoothing pool status
-		nodeInfo.inSmoothingPool, err = node.GetSmoothingPoolRegistrationState(e.rp, addr, opts)
-		if err != nil {
-			return err
-		}
 
-		// Get their fee distributor address
-		nodeInfo.feeDistributor, err = node.GetDistributorAddress(e.rp, addr, opts)
-		if err != nil {
-			return err
-		}
+		// Determine their smoothing pool status
+		nodeInfo.inSmoothingPool = nativeNodeDetails.SmoothingPoolRegistrationState
+		nodeInfo.feeDistributor = nativeNodeDetails.FeeDistributorAddress
 
 		// Store the smoothing pool state / fee distributor in the node index
-		err = e.cache.addNodeInfo(addr, nodeInfo)
+		err = e.cache.addNodeInfo(nativeNodeDetails.NodeAddress, nodeInfo)
 		if err != nil {
 			return fmt.Errorf("unable to add node info: %w", err)
 		}
 
 		// Also grab their minipools
-		minipoolAddresses, err := minipool.GetNodeMinipoolAddresses(e.rp, addr, opts)
-		if err != nil {
-			return err
+		minipools, ok := minipoolMap[nativeNodeDetails.NodeAddress]
+		if !ok {
+			continue
 		}
 
-		minipoolCount += len(minipoolAddresses)
-		var wg errgroup.Group
-		wg.SetLimit(64)
-		for _, m := range minipoolAddresses {
-			m := m
-			wg.Go(func() error {
-				pubkey, err := minipool.GetMinipoolPubkey(e.rp, m, opts)
-				if err != nil {
-					return err
-				}
-				err = e.cache.addMinipoolNode(pubkey, addr)
-				if err != nil {
-					return fmt.Errorf("unable to add minipool node: %w", err)
-				}
-				return nil
-			})
-		}
-		err = wg.Wait()
-		if err != nil {
-			return err
+		minipoolCount += len(minipools)
+		for _, minipool := range minipools {
+			err = e.cache.addMinipoolNode(minipool.Pubkey, nativeNodeDetails.NodeAddress)
+			if err != nil {
+				return fmt.Errorf("unable to add minipool node: %w", err)
+			}
 		}
 	}
 
 	// Get all odao nodes at the given block
-	odaoNodes, err := trustednode.GetMemberAddresses(e.rp, opts)
+	odaoNodes, err := state.GetAllOracleDaoMemberDetails(e.rp, networkContracts)
 	if err != nil {
 		return err
 	}
 
 	for _, member := range odaoNodes {
 
-		err = e.cache.addOdaoNode(member)
+		err = e.cache.addOdaoNode(member.Address)
 		if err != nil {
 			return fmt.Errorf("unable to add odao node: %w", err)
 		}
 	}
-	e.Logger.Info("Found odao nodes to preload", zap.Int("count", len(odaoNodes)), zap.Int64("block", opts.BlockNumber.Int64()))
+	e.Logger.Info("Loaded odao nodes", zap.Int("count", len(odaoNodes)), zap.Int64("block", opts.BlockNumber.Int64()))
 
 	// Set highestBlock to the cache's highestBlock, since it was just warmed up
 	e.cache.setHighestBlock(opts.BlockNumber)
