@@ -167,7 +167,7 @@ func (a *API) Init(listener net.Listener) error {
 	a.Logger.Info("Seeding the solo validator cache")
 	err := a.updateCache()
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to seed the solo validator cache: %w", err)
 	}
 
 	// Updates to the validator set are taxing on the bn to query, so do it every 16 epochs (about once every hour and a half)

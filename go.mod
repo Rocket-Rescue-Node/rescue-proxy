@@ -8,7 +8,7 @@ require (
 	github.com/Rocket-Rescue-Node/credentials v0.0.0-20240224174210-626742fc699e
 	github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.1
 	github.com/allegro/bigcache/v3 v3.1.0
-	github.com/attestantio/go-eth2-client v0.25.0
+	github.com/attestantio/go-eth2-client v0.26.0
 	github.com/ethereum/go-ethereum v1.15.11
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/websocket v1.5.0
