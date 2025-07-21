@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
-	rptypes "github.com/rocket-pool/rocketpool-go/types"
+	rptypes "github.com/rocket-pool/smartnode/bindings/types"
 )
 
 type MapsCache struct {

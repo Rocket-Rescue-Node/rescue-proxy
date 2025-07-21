@@ -10,7 +10,7 @@ import (
 	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
 	"github.com/ethereum/go-ethereum/common"
 	driver "github.com/mattn/go-sqlite3"
-	rptypes "github.com/rocket-pool/rocketpool-go/types"
+	rptypes "github.com/rocket-pool/smartnode/bindings/types"
 )
 
 type SqliteCache struct {

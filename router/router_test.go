@@ -23,7 +23,7 @@ import (
 	"github.com/Rocket-Rescue-Node/rescue-proxy/test"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ethereum/go-ethereum/common"
-	rptypes "github.com/rocket-pool/rocketpool-go/types"
+	rptypes "github.com/rocket-pool/smartnode/bindings/types"
 	"go.uber.org/zap/zaptest"
 	"google.golang.org/grpc/metadata"
 )

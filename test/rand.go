@@ -5,7 +5,7 @@ import (
 
 	apiv1 "github.com/attestantio/go-eth2-client/api/v1"
 	"github.com/ethereum/go-ethereum/common"
-	rptypes "github.com/rocket-pool/rocketpool-go/types"
+	rptypes "github.com/rocket-pool/smartnode/bindings/types"
 )
 
 func randPubkey(r *rand.Rand) rptypes.ValidatorPubkey {

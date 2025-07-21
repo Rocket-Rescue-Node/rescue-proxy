@@ -18,7 +18,7 @@ import (
 	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
 	"github.com/ethereum/go-ethereum/common"
-	rptypes "github.com/rocket-pool/rocketpool-go/types"
+	rptypes "github.com/rocket-pool/smartnode/bindings/types"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/metadata"
 )

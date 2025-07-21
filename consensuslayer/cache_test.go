@@ -9,7 +9,7 @@ import (
 
 	"github.com/allegro/bigcache/v3"
 	"github.com/ethereum/go-ethereum/common"
-	rptypes "github.com/rocket-pool/rocketpool-go/types"
+	rptypes "github.com/rocket-pool/smartnode/bindings/types"
 )
 
 func TestCacheRoundTrip(t *testing.T) {
