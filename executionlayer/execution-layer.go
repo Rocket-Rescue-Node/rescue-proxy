@@ -93,9 +93,7 @@ type CachingExecutionLayer struct {
 	events     chan types.Log
 	newHeaders chan *types.Header
 
-	// Somewhere to store chain data we care about
-	CachePath string
-	cache     Cache
+	cache Cache
 
 	// Checkers for vaults and mev escrow
 	vaultsChecker *stakewise.VaultsChecker
@@ -510,13 +508,8 @@ func (e *CachingExecutionLayer) Init() error {
 	e.m = metrics.NewMetricsRegistry("execution_layer")
 	e.connected = make(chan bool, 1)
 
-	// Pick a cache
-	if e.CachePath == "" {
+	if e.cache == nil {
 		e.cache = &MapsCache{}
-	} else {
-		e.cache = &SqliteCache{
-			Path: e.CachePath,
-		}
 	}
 
 	e.ctx, e.shutdown = context.WithCancel(context.Background())

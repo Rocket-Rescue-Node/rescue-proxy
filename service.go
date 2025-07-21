@@ -91,7 +91,6 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 		ECURL:                s.Config.ExecutionURL,
 		RocketStorageAddr:    s.Config.RocketStorageAddr,
 		Logger:               s.Logger,
-		CachePath:            s.Config.CachePath,
 		SWVaultsRegistryAddr: s.Config.SWVaultsRegistryAddr,
 	}
 	s.el = el

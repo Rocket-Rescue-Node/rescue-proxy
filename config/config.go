@@ -51,7 +51,6 @@ type Config struct {
 	RocketStorageAddr    string
 	SWVaultsRegistryAddr string
 	CredentialSecrets    CredentialSecrets
-	CachePath            string
 	EnableSoloValidators bool
 	Debug                bool
 	ForceBNJSON          bool
@@ -79,7 +78,6 @@ Use 'dd if=/dev/urandom bs=4 count=8 | base64' if you need to generate a new sec
 	grpcTLSKeyFileFlag := flag.String("grpc-tls-key-file", "", "Optional TLS Key for the gRPC host")
 	rocketStorageAddrFlag := flag.String("rocketstorage-addr", "0x1d8f8f00cfa6758d7bE78336684788Fb0ee0Fa46", "Address of the Rocket Storage contract. Defaults to mainnet")
 	debug := flag.Bool("debug", false, "Whether to enable verbose logging")
-	cachePathFlag := flag.String("cache-path", "", "A path to cache EL data in. Leave blank to disable caching.")
 	enableSoloValidatorsFlag := flag.Bool("enable-solo-validators", true, "Whether or not to allow solo validators access.")
 	forceBNJSONFlag := flag.Bool("force-bn-json", false, "Disables SSZ in the BN.")
 	swiseVaultsRegistryAddrFlag := flag.String("swise-vaults-registry-addr", "0x3a0008a588772446f6e656133C2D5029CC4FC20E", "Address of the Stakewise Vaults Registry contract. Defaults to mainnet. Pass empty string to disable.")
@@ -167,7 +165,6 @@ Use 'dd if=/dev/urandom bs=4 count=8 | base64' if you need to generate a new sec
 	config.AdminListenAddr = *adminAddrURLFlag
 	config.APIListenAddr = *apiAddrURLFlag
 	config.CredentialSecrets = credentialSecrets
-	config.CachePath = *cachePathFlag
 	config.GRPCListenAddr = *grpcAddrFlag
 	config.GRPCBeaconAddr = *grpcBeaconAddrFlag
 	config.ListenAddr = *addrURLFlag
