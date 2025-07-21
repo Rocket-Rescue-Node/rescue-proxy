@@ -19,19 +19,17 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/rocket-pool/smartnode/bindings/dao/trustednode"
 	"github.com/rocket-pool/smartnode/bindings/minipool"
 	"github.com/rocket-pool/smartnode/bindings/node"
 	"github.com/rocket-pool/smartnode/bindings/rocketpool"
 	rptypes "github.com/rocket-pool/smartnode/bindings/types"
+	"github.com/rocket-pool/smartnode/bindings/utils/state"
 	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
 )
 
 type ForEachNodeClosure func(common.Address) bool
 
 const reconnectRetries = 10
-const maxCacheAgeBlocks = 64
 
 type nodeInfo struct {
 	inSmoothingPool bool
@@ -93,9 +91,7 @@ type CachingExecutionLayer struct {
 	events     chan types.Log
 	newHeaders chan *types.Header
 
-	// Somewhere to store chain data we care about
-	CachePath string
-	cache     Cache
+	cache Cache
 
 	// Checkers for vaults and mev escrow
 	vaultsChecker *stakewise.VaultsChecker
@@ -510,13 +506,8 @@ func (e *CachingExecutionLayer) Init() error {
 	e.m = metrics.NewMetricsRegistry("execution_layer")
 	e.connected = make(chan bool, 1)
 
-	// Pick a cache
-	if e.CachePath == "" {
+	if e.cache == nil {
 		e.cache = &MapsCache{}
-	} else {
-		e.cache = &SqliteCache{
-			Path: e.CachePath,
-		}
 	}
 
 	e.ctx, e.shutdown = context.WithCancel(context.Background())
@@ -524,13 +515,13 @@ func (e *CachingExecutionLayer) Init() error {
 	if err := e.cache.init(); err != nil {
 		return fmt.Errorf("unable to init cache: %w", err)
 	}
-	cacheBlock := e.cache.getHighestBlock()
 
 	e.client, err = ethclient.Dial(e.ECURL.String())
 	if err != nil {
 		return err
 	}
-	e.rp, err = rocketpool.NewRocketPool(e.client, common.HexToAddress(e.RocketStorageAddr))
+	rocketStorageAddr := common.HexToAddress(e.RocketStorageAddr)
+	e.rp, err = rocketpool.NewRocketPool(e.client, rocketStorageAddr)
 	if err != nil {
 		return err
 	}
@@ -548,25 +539,18 @@ func (e *CachingExecutionLayer) Init() error {
 		return err
 	}
 
-	// Subtract the cache's highest block from the current block
-	delta := big.NewInt(0)
-	delta.Sub(header.Number, cacheBlock)
-	if delta.Int64() < 0 || delta.Int64() > maxCacheAgeBlocks {
-		// Reset caches from the future and the distance past
-		e.Logger.Info("Cache is stale or from the future, resetting...",
-			zap.Int64("cache block", cacheBlock.Int64()),
-			zap.Int64("current block", header.Number.Int64()),
-			zap.Int64("delta", delta.Int64()))
-		err = e.cache.reset()
-		if err != nil {
-			return fmt.Errorf("unable to reset cache: %w", err)
-		}
-
-		cacheBlock = big.NewInt(0)
-	}
-
 	// Create opts to query state at the latest block
 	opts := &bind.CallOpts{BlockNumber: header.Number}
+
+	// Get the state contracts
+	stateContracts, ok := stateContractsMap[rocketStorageAddr]
+	if !ok {
+		return fmt.Errorf("no state contracts found for rocket storage address: %s", rocketStorageAddr.String())
+	}
+	networkContracts, err := state.NewNetworkContracts(e.rp, stateContracts.MulticallAddress, stateContracts.StateManagerAddress, opts)
+	if err != nil {
+		return fmt.Errorf("unable to create network contracts: %w", err)
+	}
 
 	// Load contracts
 	e.rocketNodeManager, err = e.rp.GetContract("rocketNodeManager", opts)
@@ -594,84 +578,74 @@ func (e *CachingExecutionLayer) Init() error {
 		return err
 	}
 
-	// If the cache is warm, skip the slow path
-	if cacheBlock.Cmp(big.NewInt(0)) != 0 {
-		return nil
-	}
 	e.Logger.Info("Warming up the cache")
 
 	// Get all nodes at the given block
-	nodes, err := node.GetNodeAddresses(e.rp, opts)
+	nodes, err := state.GetAllNativeNodeDetails(e.rp, networkContracts)
 	if err != nil {
 		return err
 	}
-	e.Logger.Info("Found nodes to preload", zap.Int("count", len(nodes)), zap.Int64("block", opts.BlockNumber.Int64()))
+	e.Logger.Info("Loaded nodes", zap.Int("count", len(nodes)), zap.Int64("block", opts.BlockNumber.Int64()))
+
+	// Get all minipools at the given block
+	minipools, err := state.GetAllNativeMinipoolDetails(e.rp, networkContracts)
+	if err != nil {
+		return err
+	}
+	e.Logger.Info("Loaded minipools", zap.Int("count", len(minipools)), zap.Int64("block", opts.BlockNumber.Int64()))
+
+	// Create a node addr -> []*minipooldetails map
+	minipoolMap := make(map[common.Address][]*state.NativeMinipoolDetails)
+
+	// Iterate over the minipools and add them to the map
+	for _, minipool := range minipools {
+		minipoolMap[minipool.NodeAddress] = append(minipoolMap[minipool.NodeAddress], &minipool)
+	}
 
 	minipoolCount := 0
-	for _, addr := range nodes {
+	for _, nativeNodeDetails := range nodes {
 		// Allocate a pointer for this node
 		nodeInfo := &nodeInfo{}
-		// Determine their smoothing pool status
-		nodeInfo.inSmoothingPool, err = node.GetSmoothingPoolRegistrationState(e.rp, addr, opts)
-		if err != nil {
-			return err
-		}
 
-		// Get their fee distributor address
-		nodeInfo.feeDistributor, err = node.GetDistributorAddress(e.rp, addr, opts)
-		if err != nil {
-			return err
-		}
+		// Determine their smoothing pool status
+		nodeInfo.inSmoothingPool = nativeNodeDetails.SmoothingPoolRegistrationState
+		nodeInfo.feeDistributor = nativeNodeDetails.FeeDistributorAddress
 
 		// Store the smoothing pool state / fee distributor in the node index
-		err = e.cache.addNodeInfo(addr, nodeInfo)
+		err = e.cache.addNodeInfo(nativeNodeDetails.NodeAddress, nodeInfo)
 		if err != nil {
 			return fmt.Errorf("unable to add node info: %w", err)
 		}
 
 		// Also grab their minipools
-		minipoolAddresses, err := minipool.GetNodeMinipoolAddresses(e.rp, addr, opts)
-		if err != nil {
-			return err
+		minipools, ok := minipoolMap[nativeNodeDetails.NodeAddress]
+		if !ok {
+			continue
 		}
 
-		minipoolCount += len(minipoolAddresses)
-		var wg errgroup.Group
-		wg.SetLimit(64)
-		for _, m := range minipoolAddresses {
-			m := m
-			wg.Go(func() error {
-				pubkey, err := minipool.GetMinipoolPubkey(e.rp, m, opts)
-				if err != nil {
-					return err
-				}
-				err = e.cache.addMinipoolNode(pubkey, addr)
-				if err != nil {
-					return fmt.Errorf("unable to add minipool node: %w", err)
-				}
-				return nil
-			})
-		}
-		err = wg.Wait()
-		if err != nil {
-			return err
+		minipoolCount += len(minipools)
+		for _, minipool := range minipools {
+			err = e.cache.addMinipoolNode(minipool.Pubkey, nativeNodeDetails.NodeAddress)
+			if err != nil {
+				return fmt.Errorf("unable to add minipool node: %w", err)
+			}
 		}
 	}
 
 	// Get all odao nodes at the given block
-	odaoNodes, err := trustednode.GetMemberAddresses(e.rp, opts)
+	odaoNodes, err := state.GetAllOracleDaoMemberDetails(e.rp, networkContracts)
 	if err != nil {
 		return err
 	}
 
 	for _, member := range odaoNodes {
 
-		err = e.cache.addOdaoNode(member)
+		err = e.cache.addOdaoNode(member.Address)
 		if err != nil {
 			return fmt.Errorf("unable to add odao node: %w", err)
 		}
 	}
-	e.Logger.Info("Found odao nodes to preload", zap.Int("count", len(odaoNodes)), zap.Int64("block", opts.BlockNumber.Int64()))
+	e.Logger.Info("Loaded odao nodes", zap.Int("count", len(odaoNodes)), zap.Int64("block", opts.BlockNumber.Int64()))
 
 	// Set highestBlock to the cache's highestBlock, since it was just warmed up
 	e.cache.setHighestBlock(opts.BlockNumber)
