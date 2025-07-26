@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"sync"
 
+	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer/dataprovider"
 	"github.com/ethereum/go-ethereum/common"
 	rptypes "github.com/rocket-pool/smartnode/bindings/types"
 )
@@ -66,14 +67,14 @@ func (m *MapsCache) addMinipoolNode(pubkey rptypes.ValidatorPubkey, nodeAddr com
 	return nil
 }
 
-func (m *MapsCache) getNodeInfo(nodeAddr common.Address) (*nodeInfo, error) {
+func (m *MapsCache) getNodeInfo(nodeAddr common.Address) (*dataprovider.NodeInfo, error) {
 
 	void, ok := m.nodeIndex.Load(nodeAddr)
 	if !ok {
 		return nil, &NotFoundError{}
 	}
 
-	nodeInfo, ok := void.(*nodeInfo)
+	nodeInfo, ok := void.(*dataprovider.NodeInfo)
 	if !ok {
 		return nil, fmt.Errorf("could not convert cache result into *nodeInfo")
 	}
@@ -81,7 +82,7 @@ func (m *MapsCache) getNodeInfo(nodeAddr common.Address) (*nodeInfo, error) {
 	return nodeInfo, nil
 }
 
-func (m *MapsCache) addNodeInfo(nodeAddr common.Address, node *nodeInfo) error {
+func (m *MapsCache) addNodeInfo(nodeAddr common.Address, node *dataprovider.NodeInfo) error {
 
 	m.nodeIndex.Store(nodeAddr, node)
 	return nil

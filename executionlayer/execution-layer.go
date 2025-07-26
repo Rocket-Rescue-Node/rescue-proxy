@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer/dataprovider"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer/stakewise"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
 	"github.com/ethereum/go-ethereum"
@@ -23,18 +24,13 @@ import (
 	"github.com/rocket-pool/smartnode/bindings/node"
 	"github.com/rocket-pool/smartnode/bindings/rocketpool"
 	rptypes "github.com/rocket-pool/smartnode/bindings/types"
-	"github.com/rocket-pool/smartnode/bindings/utils/state"
 	"go.uber.org/zap"
 )
 
 type ForEachNodeClosure func(common.Address) bool
 
 const reconnectRetries = 10
-
-type nodeInfo struct {
-	inSmoothingPool bool
-	feeDistributor  common.Address
-}
+const multicall3Addr = "0xcA11bde05977b3631167028862bE2a173976CA11"
 
 type RPInfo struct {
 	ExpectedFeeRecipient *common.Address
@@ -129,9 +125,9 @@ func (e *CachingExecutionLayer) handleNodeEvent(event types.Log) {
 
 		addr := common.BytesToAddress(event.Topics[1].Bytes())
 		// When we see new nodes register, assume they aren't in the SP and add to index
-		nodeInfo := &nodeInfo{}
+		nodeInfo := &dataprovider.NodeInfo{}
 		// Get their fee distributor address
-		nodeInfo.feeDistributor, err = node.GetDistributorAddress(e.rp, addr, nil)
+		nodeInfo.FeeDistributor, err = node.GetDistributorAddress(e.rp, addr, nil)
 		if err != nil {
 			e.Logger.Warn("Couldn't get fee distributor address for newly registered node", zap.String("node", addr.String()))
 		}
@@ -147,7 +143,7 @@ func (e *CachingExecutionLayer) handleNodeEvent(event types.Log) {
 
 	// Otherwise it should be a smoothing pool update
 	if bytes.Equal(event.Topics[0].Bytes(), e.smoothingPoolStatusChangedTopic.Bytes()) {
-		var n *nodeInfo
+		var n *dataprovider.NodeInfo
 		// When we see a SP status change, update the pointer in the index
 		nodeAddr := common.BytesToAddress(event.Topics[1].Bytes())
 		status := big.NewInt(0).SetBytes(event.Data)
@@ -164,9 +160,9 @@ func (e *CachingExecutionLayer) handleNodeEvent(event types.Log) {
 
 			// Odd that we don't have this node already, but add it and carry on
 			e.Logger.Warn("Unknown node updated its smoothing pool status", zap.String("addr", nodeAddr.String()))
-			n = &nodeInfo{}
+			n = &dataprovider.NodeInfo{}
 			// Get their fee distributor address
-			n.feeDistributor, err = node.GetDistributorAddress(e.rp, nodeAddr, nil)
+			n.FeeDistributor, err = node.GetDistributorAddress(e.rp, nodeAddr, nil)
 			if err != nil {
 				e.Logger.Warn("Couldn't compute fee distributor address for unknown node", zap.String("node", nodeAddr.String()))
 			}
@@ -174,7 +170,7 @@ func (e *CachingExecutionLayer) handleNodeEvent(event types.Log) {
 		}
 
 		e.Logger.Info("Node SP status changed", zap.String("addr", nodeAddr.String()), zap.Bool("in_sp", status.Cmp(big.NewInt(1)) == 0))
-		n.inSmoothingPool = status.Cmp(big.NewInt(1)) == 0
+		n.InSmoothingPool = status.Cmp(big.NewInt(1)) == 0
 		err = e.cache.addNodeInfo(nodeAddr, n)
 		if err != nil {
 			e.Logger.Error("Failed to add nodeInfo to cache", zap.Error(err))
@@ -539,18 +535,13 @@ func (e *CachingExecutionLayer) Init() error {
 		return err
 	}
 
-	// Create opts to query state at the latest block
-	opts := &bind.CallOpts{BlockNumber: header.Number}
+	// Create a new context for multicall
+	// It's pretty snappy, so timeout after just 2 minutes.
+	mcCtx, cancel := context.WithTimeout(e.ctx, 2*time.Minute)
+	defer cancel()
 
-	// Get the state contracts
-	stateContracts, ok := stateContractsMap[rocketStorageAddr]
-	if !ok {
-		return fmt.Errorf("no state contracts found for rocket storage address: %s", rocketStorageAddr.String())
-	}
-	networkContracts, err := state.NewNetworkContracts(e.rp, stateContracts.MulticallAddress, stateContracts.StateManagerAddress, opts)
-	if err != nil {
-		return fmt.Errorf("unable to create network contracts: %w", err)
-	}
+	// Create opts to query state at the latest block
+	opts := &bind.CallOpts{BlockNumber: header.Number, Context: mcCtx}
 
 	// Load contracts
 	e.rocketNodeManager, err = e.rp.GetContract("rocketNodeManager", opts)
@@ -581,51 +572,47 @@ func (e *CachingExecutionLayer) Init() error {
 	e.Logger.Info("Warming up the cache")
 
 	// Get all nodes at the given block
-	nodes, err := state.GetAllNativeNodeDetails(e.rp, networkContracts)
+	mc, err := dataprovider.NewMulticall(e.ctx, e.client, rocketStorageAddr, common.HexToAddress(multicall3Addr))
 	if err != nil {
-		return err
+		return fmt.Errorf("error initializing multicall3 dataprovider: %w", err)
+	}
+	nodes, err := mc.GetAllNodes(opts)
+	if err != nil {
+		return fmt.Errorf("error getting all nodes: %w", err)
 	}
 	e.Logger.Info("Loaded nodes", zap.Int("count", len(nodes)), zap.Int64("block", opts.BlockNumber.Int64()))
 
 	// Get all minipools at the given block
-	minipools, err := state.GetAllNativeMinipoolDetails(e.rp, networkContracts)
+	minipools, err := mc.GetAllMinipools(nodes, opts)
 	if err != nil {
-		return err
+		return fmt.Errorf("error getting all minipools: %w", err)
 	}
 	e.Logger.Info("Loaded minipools", zap.Int("count", len(minipools)), zap.Int64("block", opts.BlockNumber.Int64()))
 
-	// Create a node addr -> []*minipooldetails map
-	minipoolMap := make(map[common.Address][]*state.NativeMinipoolDetails)
-
-	// Iterate over the minipools and add them to the map
-	for _, minipool := range minipools {
-		minipoolMap[minipool.NodeAddress] = append(minipoolMap[minipool.NodeAddress], &minipool)
-	}
-
 	minipoolCount := 0
-	for _, nativeNodeDetails := range nodes {
+	for addr, node := range nodes {
 		// Allocate a pointer for this node
-		nodeInfo := &nodeInfo{}
+		nodeInfo := &dataprovider.NodeInfo{}
 
 		// Determine their smoothing pool status
-		nodeInfo.inSmoothingPool = nativeNodeDetails.SmoothingPoolRegistrationState
-		nodeInfo.feeDistributor = nativeNodeDetails.FeeDistributorAddress
+		nodeInfo.InSmoothingPool = node.InSmoothingPool
+		nodeInfo.FeeDistributor = node.FeeDistributor
 
 		// Store the smoothing pool state / fee distributor in the node index
-		err = e.cache.addNodeInfo(nativeNodeDetails.NodeAddress, nodeInfo)
+		err = e.cache.addNodeInfo(addr, nodeInfo)
 		if err != nil {
 			return fmt.Errorf("unable to add node info: %w", err)
 		}
 
 		// Also grab their minipools
-		minipools, ok := minipoolMap[nativeNodeDetails.NodeAddress]
+		minipools, ok := minipools[addr]
 		if !ok {
 			continue
 		}
 
 		minipoolCount += len(minipools)
 		for _, minipool := range minipools {
-			err = e.cache.addMinipoolNode(minipool.Pubkey, nativeNodeDetails.NodeAddress)
+			err = e.cache.addMinipoolNode(minipool, addr)
 			if err != nil {
 				return fmt.Errorf("unable to add minipool node: %w", err)
 			}
@@ -633,14 +620,14 @@ func (e *CachingExecutionLayer) Init() error {
 	}
 
 	// Get all odao nodes at the given block
-	odaoNodes, err := state.GetAllOracleDaoMemberDetails(e.rp, networkContracts)
+	odaoNodes, err := mc.GetAllOdaoNodes(opts)
 	if err != nil {
-		return err
+		return fmt.Errorf("error getting all odao nodes: %w", err)
 	}
 
 	for _, member := range odaoNodes {
 
-		err = e.cache.addOdaoNode(member.Address)
+		err = e.cache.addOdaoNode(member)
 		if err != nil {
 			return fmt.Errorf("unable to add odao node: %w", err)
 		}
@@ -733,7 +720,7 @@ func (e *CachingExecutionLayer) GetRPInfo(pubkey rptypes.ValidatorPubkey) (*RPIn
 		return nil, fmt.Errorf("node %s not found in cache despite pubkey %s being present", nodeAddr.String(), pubkey.String())
 	}
 
-	if nodeInfo.inSmoothingPool {
+	if nodeInfo.InSmoothingPool {
 		return &RPInfo{
 			ExpectedFeeRecipient: e.smoothingPool.Address,
 			NodeAddress:          nodeAddr,
@@ -741,7 +728,7 @@ func (e *CachingExecutionLayer) GetRPInfo(pubkey rptypes.ValidatorPubkey) (*RPIn
 	}
 
 	return &RPInfo{
-		ExpectedFeeRecipient: &nodeInfo.feeDistributor,
+		ExpectedFeeRecipient: &nodeInfo.FeeDistributor,
 		NodeAddress:          nodeAddr,
 	}, nil
 }
