@@ -15,4 +15,6 @@ type DataProvider interface {
 	GetAllNodes(opts *bind.CallOpts) (map[common.Address]*NodeInfo, error)
 	GetAllMinipools(nodeMap map[common.Address]*NodeInfo, opts *bind.CallOpts) (map[common.Address][]rptypes.ValidatorPubkey, error)
 	GetAllOdaoNodes(opts *bind.CallOpts) ([]common.Address, error)
+	GetREthAddress() common.Address
+	GetSmoothingPoolAddress() common.Address
 }

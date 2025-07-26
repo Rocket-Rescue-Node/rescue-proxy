@@ -15,12 +15,15 @@ import (
 type Multicall struct {
 	NodeBatchSize int
 
-	client                              bind.ContractBackend
-	multicallInstance                   *bind.BoundContract
+	client                       bind.ContractBackend
+	multicallInstance            *bind.BoundContract
+	rocketDaoNodeTrustedInstance *bind.BoundContract
+
 	rocketNodeManagerAddress            common.Address
 	rocketNodeDistributorFactoryAddress common.Address
 	rocketMinipoolManagerAddress        common.Address
-	rocketDaoNodeTrustedInstance        *bind.BoundContract
+	rocketTokenREthAddress              common.Address
+	rocketSmoothingPoolAddress          common.Address
 }
 
 var multicall3 *abis.Multicall3
@@ -109,6 +112,30 @@ func NewMulticall(ctx context.Context, client bind.ContractBackend,
 		return nil, fmt.Errorf("failed to unpack rocket dao node trusted address: %w", err)
 	}
 
+	// rethAddressKey is a keccak256 of "contract.addressrocketTokenRETH"
+	rethAddressKey := common.HexToHash("0xe3744443225bff7cc22028be036b80de58057d65a3fdca0a3df329f525e31ccc")
+	rethAddressCallPacked := rocketStorage.PackGetAddress(rethAddressKey)
+	rethAddressResponsePacked, err := storageInstance.CallRaw(&opts, rethAddressCallPacked)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get reth address: %w", err)
+	}
+	rethAddress, err := rocketStorage.UnpackGetAddress(rethAddressResponsePacked)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unpack reth address: %w", err)
+	}
+
+	// smoothingPoolAddressKey is a keccak256 of "contract.addressrocketSmoothingPool"
+	smoothingPoolAddressKey := common.HexToHash("0x822231720aef9b264db1d9ca053137498f759c28b243f45c44db1d39d6bce46e")
+	smoothingPoolAddressCallPacked := rocketStorage.PackGetAddress(smoothingPoolAddressKey)
+	smoothingPoolAddressResponsePacked, err := storageInstance.CallRaw(&opts, smoothingPoolAddressCallPacked)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get smoothing pool address: %w", err)
+	}
+	smoothingPoolAddress, err := rocketStorage.UnpackGetAddress(smoothingPoolAddressResponsePacked)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unpack smoothing pool address: %w", err)
+	}
+
 	return &Multicall{
 		client:                              client,
 		multicallInstance:                   multicall3.Instance(client, contractAddress),
@@ -116,6 +143,8 @@ func NewMulticall(ctx context.Context, client bind.ContractBackend,
 		rocketNodeDistributorFactoryAddress: nodeDistributorFactoryAddress,
 		rocketMinipoolManagerAddress:        minipoolManagerAddress,
 		rocketDaoNodeTrustedInstance:        rocketDaoNodeTrusted.Instance(client, rocketDAONodeTrustedAddress),
+		rocketTokenREthAddress:              rethAddress,
+		rocketSmoothingPoolAddress:          smoothingPoolAddress,
 		NodeBatchSize:                       100,
 	}, nil
 }
@@ -399,4 +428,12 @@ func (m *Multicall) GetAllOdaoNodes(opts *bind.CallOpts) ([]common.Address, erro
 	}
 
 	return out, nil
+}
+
+func (m *Multicall) GetREthAddress() common.Address {
+	return m.rocketTokenREthAddress
+}
+
+func (m *Multicall) GetSmoothingPoolAddress() common.Address {
+	return m.rocketSmoothingPoolAddress
 }
