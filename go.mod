@@ -6,20 +6,18 @@ toolchain go1.24.2
 
 require (
 	github.com/Rocket-Rescue-Node/credentials v0.0.0-20240224174210-626742fc699e
-	github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.1
+	github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.2.0
 	github.com/allegro/bigcache/v3 v3.1.0
 	github.com/attestantio/go-eth2-client v0.26.0
 	github.com/ethereum/go-ethereum v1.15.11
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/mattn/go-sqlite3 v1.14.17
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.20.0
 	github.com/rocket-pool/smartnode/bindings v0.0.0-20250523024043-4478efc9d256
 	github.com/rs/zerolog v1.32.0
 	go.uber.org/zap v1.25.0
 	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa
-	golang.org/x/sync v0.14.0
 	google.golang.org/grpc v1.64.1
 	google.golang.org/protobuf v1.34.2
 )
@@ -81,6 +79,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.38.0 // indirect
 	golang.org/x/net v0.36.0 // indirect
+	golang.org/x/sync v0.14.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/text v0.25.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240318140521-94a12d6c2237 // indirect

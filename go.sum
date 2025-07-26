@@ -6,8 +6,8 @@ github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERo
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/Rocket-Rescue-Node/credentials v0.0.0-20240224174210-626742fc699e h1:fGJ5R5lOqdyGfTL8HcTiCFrNT6hyvjDR5ROIaqIHGlk=
 github.com/Rocket-Rescue-Node/credentials v0.0.0-20240224174210-626742fc699e/go.mod h1:rInGId8V6ezrcyrNTeuWkfcSKD9fF97Mguso/x7ahJs=
-github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.1 h1:MyGF9V64MATdqFI2nri8u1PWgGPOlCxqkxfiN0CgAiY=
-github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.1.1/go.mod h1:p4CMEZjb+V4hI6vaAoOTplAi6pZLHCtnw163NdMztgo=
+github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.2.0 h1:uxcUJgoj5ZnuDm1SVhlpXkiSSR1yhRpDqN9l41HkS70=
+github.com/Rocket-Rescue-Node/guarded-beacon-proxy v0.2.0/go.mod h1:vBh1lOuPHhxbIom1jA8oqLAWWXt+ebr1xXuW9H1565U=
 github.com/VictoriaMetrics/fastcache v1.12.2 h1:N0y9ASrJ0F6h0QaC3o6uJb3NIZ9VKLjCM7NQbSmF7WI=
 github.com/VictoriaMetrics/fastcache v1.12.2/go.mod h1:AmC+Nzz1+3G2eCPapF6UcsnkThDcMsQicp4xDukwJYI=
 github.com/allegro/bigcache/v3 v3.1.0 h1:H2Vp8VOvxcrB91o86fUSVJFqeuz8kpyyB02eH3bSzwk=
@@ -192,8 +192,6 @@ github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWE
 github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
 github.com/mattn/go-runewidth v0.0.15 h1:UNAjwbU9l54TA3KzvqLGxwWjHmMgBUVhBiTjelZgg3U=
 github.com/mattn/go-runewidth v0.0.15/go.mod h1:Jdepj2loyihRzMpdS35Xk/zdY8IAYHsh153qUoGf23w=
-github.com/mattn/go-sqlite3 v1.14.17 h1:mCRHCLDUBXgpKAqIKsaAaAsrAlbkeomtRFKXh2L6YIM=
-github.com/mattn/go-sqlite3 v1.14.17/go.mod h1:2eHXhiwb8IkHr+BDWZGa96P6+rkvnG63S2DGjv9HUNg=
 github.com/minio/sha256-simd v1.0.1 h1:6kaan5IFmwTNynnKKpDHe6FWHohJOHhCPchzK49dzMM=
 github.com/minio/sha256-simd v1.0.1/go.mod h1:Pz6AKMiUdngCLpeTL/RJY1M9rUuPMYujV5xJjtbRSN8=
 github.com/mitchellh/mapstructure v1.5.0 h1:jeMsZIYE/09sWLaz43PL7Gy6RuMjD2eJVyuac5Z2hdY=
