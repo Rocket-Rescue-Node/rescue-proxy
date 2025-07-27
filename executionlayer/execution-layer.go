@@ -156,6 +156,16 @@ func (e *CachingExecutionLayer) newCache(loggerFunc func(fmt string, fields ...z
 		zap.Int("odao nodes", len(odaoNodes)))
 
 	e.cache.Store(&cacheRCU{Cache: &out, smoothingPoolAddress: smoothingPoolAddress, rethAddress: rethAddress})
+
+	e.m.Gauge("execution_cache_nodes").Set(float64(len(nodes)))
+	e.m.Gauge("execution_cache_minipools").Set(float64(minipoolCount))
+	e.m.Gauge("execution_cache_odao_nodes").Set(float64(len(odaoNodes)))
+
+	// Useful for data freshness on the dashboard
+	// as well as in alerts.
+	//
+	// Only set it if the cache is successfully populated
+	e.m.Gauge("execution_cache_timestamp").Set(float64(header.Time))
 	return nil
 }
 
