@@ -1,0 +1,22 @@
+[
+    {
+        "inputs": [
+            {
+                "name": "_hash",
+                "type": "bytes32"
+            },
+            {
+                "name": "_signature",
+                "type": "bytes"
+            }
+        ],
+        "name": "isValidSignature",
+        "outputs": [
+            {
+                "type": "bytes4"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    }
+]

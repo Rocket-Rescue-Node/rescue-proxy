@@ -1,13 +1,11 @@
 package stakewise
 
 import (
-	"context"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 type cacheValue struct {
@@ -18,13 +16,13 @@ type cacheValue struct {
 type VaultsChecker struct {
 	registryInstance *bind.BoundContract
 	c                sync.Map
-	ec               *ethclient.Client
+	ec               bind.ContractBackend
 }
 
 var vaultsRegistryAbi = NewVaultsRegistry()
 var vaultAbi = NewEthPrivVault()
 
-func NewVaultsChecker(ec *ethclient.Client, vaultsRegistryAddress common.Address) *VaultsChecker {
+func NewVaultsChecker(ec bind.ContractBackend, vaultsRegistryAddress common.Address) *VaultsChecker {
 	registryInstance := vaultsRegistryAbi.Instance(ec, vaultsRegistryAddress)
 
 	return &VaultsChecker{
@@ -35,17 +33,14 @@ func NewVaultsChecker(ec *ethclient.Client, vaultsRegistryAddress common.Address
 }
 
 // Returns the vault's mevEscrow address if it is a vault, otherwise returns nil
-func (v *VaultsChecker) IsVault(ctx context.Context, vaultAddress common.Address) (*common.Address, error) {
-	callOpts := bind.CallOpts{
-		Context: ctx,
-	}
+func (v *VaultsChecker) IsVault(callOpts *bind.CallOpts, vaultAddress common.Address) (*common.Address, error) {
 	var cv cacheValue
 	value, ok := v.c.Load(vaultAddress)
 	if ok {
 		cv = value.(cacheValue)
 	}
 	if !ok || cv.lastChecked.Add(24*time.Hour).Before(time.Now()) {
-		resp, err := v.registryInstance.CallRaw(&callOpts, vaultsRegistryAbi.PackVaults(vaultAddress))
+		resp, err := v.registryInstance.CallRaw(callOpts, vaultsRegistryAbi.PackVaults(vaultAddress))
 		if err != nil {
 			return nil, err
 		}
@@ -61,7 +56,7 @@ func (v *VaultsChecker) IsVault(ctx context.Context, vaultAddress common.Address
 		// If it is a vault, we need to get the mevEscrow address
 		vaultContract := vaultAbi.Instance(v.ec, vaultAddress)
 		call := vaultAbi.PackMevEscrow()
-		resp, err = vaultContract.CallRaw(&callOpts, call)
+		resp, err = vaultContract.CallRaw(callOpts, call)
 		if err != nil {
 			return nil, err
 		}

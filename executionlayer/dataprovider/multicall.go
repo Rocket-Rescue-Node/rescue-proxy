@@ -1,21 +1,27 @@
 package dataprovider
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"math/big"
 
 	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer/dataprovider/abis"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer/stakewise"
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	rptypes "github.com/rocket-pool/smartnode/bindings/types"
 )
 
 type Multicall struct {
-	NodeBatchSize int
+	NodeBatchSize        int
+	SWVaultsRegistryAddr string
 
 	client                       bind.ContractBackend
+	rocketStorageAddress         common.Address
 	multicallInstance            *bind.BoundContract
 	rocketDaoNodeTrustedInstance *bind.BoundContract
 
@@ -24,6 +30,9 @@ type Multicall struct {
 	rocketMinipoolManagerAddress        common.Address
 	rocketTokenREthAddress              common.Address
 	rocketSmoothingPoolAddress          common.Address
+
+	// Checkers for vaults and mev escrow
+	vaultsChecker *stakewise.VaultsChecker
 }
 
 var multicall3 *abis.Multicall3
@@ -32,6 +41,7 @@ var rocketNodeManager *abis.RocketNodeManager
 var rocketNodeDistributorFactory *abis.RocketNodeDistributorFactory
 var rocketMinipoolManager *abis.RocketMinipoolManager
 var rocketDaoNodeTrusted *abis.RocketDaoNodeTrusted
+var eip1271 *abis.EIP1271
 
 func init() {
 	multicall3 = abis.NewMulticall3()
@@ -40,14 +50,13 @@ func init() {
 	rocketNodeDistributorFactory = abis.NewRocketNodeDistributorFactory()
 	rocketMinipoolManager = abis.NewRocketMinipoolManager()
 	rocketDaoNodeTrusted = abis.NewRocketDaoNodeTrusted()
+	eip1271 = abis.NewEIP1271()
 }
 
 func NewMulticall(ctx context.Context, client bind.ContractBackend,
 	rocketStorageAddress common.Address,
 	contractAddress common.Address,
-) (DataProvider, error) {
-
-	storageInstance := rocketStorage.Instance(client, rocketStorageAddress)
+) (*Multicall, error) {
 
 	// get the head block height
 	headBlock, err := client.HeaderByNumber(ctx, nil)
@@ -61,92 +70,110 @@ func NewMulticall(ctx context.Context, client bind.ContractBackend,
 		BlockNumber: headBlockHeight,
 	}
 
+	out := &Multicall{
+		client:               client,
+		rocketStorageAddress: rocketStorageAddress,
+		multicallInstance:    multicall3.Instance(client, contractAddress),
+		NodeBatchSize:        100,
+	}
+
+	err = out.RefreshAddresses(&opts)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (m *Multicall) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
+	return m.client.HeaderByNumber(ctx, number)
+}
+
+func (m *Multicall) RefreshAddresses(opts *bind.CallOpts) error {
+	storageInstance := rocketStorage.Instance(m.client, m.rocketStorageAddress)
+
 	// hashes precomputed from https://emn178.github.io/online-tools/keccak_256.html
 
 	// nodeManagerKey is a keccak256 of "contract.addressrocketNodeManager"
 	nodeManagerKey := common.HexToHash("0xaf00be55c9fb8f543c04e0aa0d70351b880c1bfafffd15b60065a4a50c85ec94")
 	// get nodeManagerAddress from storage
 	nodeManagerAddressCallPacked := rocketStorage.PackGetAddress(nodeManagerKey)
-	nodeManagerAddressResponsePacked, err := storageInstance.CallRaw(&opts, nodeManagerAddressCallPacked)
+	nodeManagerAddressResponsePacked, err := storageInstance.CallRaw(opts, nodeManagerAddressCallPacked)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get node manager address: %w", err)
+		return fmt.Errorf("failed to get node manager address: %w", err)
 	}
 	nodeManagerAddress, err := rocketStorage.UnpackGetAddress(nodeManagerAddressResponsePacked)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unpack node manager address: %w", err)
+		return fmt.Errorf("failed to unpack node manager address: %w", err)
 	}
 
 	// nodeDistributorFactoryKey is a keccak256 of "contract.addressrocketNodeDistributorFactory"
 	nodeDistributorFactoryKey := common.HexToHash("0xea051094896ef3b09ab1b794ad5ea695a5ff3906f74a9328e2c16db69d0f3123")
 	nodeDistributorFactoryAddressCallPacked := rocketStorage.PackGetAddress(nodeDistributorFactoryKey)
-	nodeDistributorFactoryAddressResponsePacked, err := storageInstance.CallRaw(&opts, nodeDistributorFactoryAddressCallPacked)
+	nodeDistributorFactoryAddressResponsePacked, err := storageInstance.CallRaw(opts, nodeDistributorFactoryAddressCallPacked)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get node distributor factory address: %w", err)
+		return fmt.Errorf("failed to get node distributor factory address: %w", err)
 	}
 	nodeDistributorFactoryAddress, err := rocketStorage.UnpackGetAddress(nodeDistributorFactoryAddressResponsePacked)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unpack node distributor factory address: %w", err)
+		return fmt.Errorf("failed to unpack node distributor factory address: %w", err)
 	}
 
 	// minipoolManagerKey is a keccak256 of "contract.addressrocketMinipoolManager"
 	minipoolManagerKey := common.HexToHash("0xe9dfec9339b94a131861a58f1bb4ac4c1ce55c7ffe8550e0b6ebcfde87bb012f")
 	minipoolManagerAddressCallPacked := rocketStorage.PackGetAddress(minipoolManagerKey)
-	minipoolManagerAddressResponsePacked, err := storageInstance.CallRaw(&opts, minipoolManagerAddressCallPacked)
+	minipoolManagerAddressResponsePacked, err := storageInstance.CallRaw(opts, minipoolManagerAddressCallPacked)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get minipool manager address: %w", err)
+		return fmt.Errorf("failed to get minipool manager address: %w", err)
 	}
 	minipoolManagerAddress, err := rocketStorage.UnpackGetAddress(minipoolManagerAddressResponsePacked)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unpack minipool manager address: %w", err)
+		return fmt.Errorf("failed to unpack minipool manager address: %w", err)
 	}
 
 	// rocketDAONodeTrustedKey is a keccak256 of "contract.addressrocketDAONodeTrusted"
 	rocketDAONodeTrustedKey := common.HexToHash("0x9a354e1bb2e38ca826db7a8d061cfb0ed7dbd83d241a2cbe4fd5218f9bb4333f")
 	rocketDAONodeTrustedAddressCallPacked := rocketStorage.PackGetAddress(rocketDAONodeTrustedKey)
-	rocketDAONodeTrustedAddressResponsePacked, err := storageInstance.CallRaw(&opts, rocketDAONodeTrustedAddressCallPacked)
+	rocketDAONodeTrustedAddressResponsePacked, err := storageInstance.CallRaw(opts, rocketDAONodeTrustedAddressCallPacked)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get rocket dao node trusted address: %w", err)
+		return fmt.Errorf("failed to get rocket dao node trusted address: %w", err)
 	}
 	rocketDAONodeTrustedAddress, err := rocketStorage.UnpackGetAddress(rocketDAONodeTrustedAddressResponsePacked)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unpack rocket dao node trusted address: %w", err)
+		return fmt.Errorf("failed to unpack rocket dao node trusted address: %w", err)
 	}
 
 	// rethAddressKey is a keccak256 of "contract.addressrocketTokenRETH"
 	rethAddressKey := common.HexToHash("0xe3744443225bff7cc22028be036b80de58057d65a3fdca0a3df329f525e31ccc")
 	rethAddressCallPacked := rocketStorage.PackGetAddress(rethAddressKey)
-	rethAddressResponsePacked, err := storageInstance.CallRaw(&opts, rethAddressCallPacked)
+	rethAddressResponsePacked, err := storageInstance.CallRaw(opts, rethAddressCallPacked)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get reth address: %w", err)
+		return fmt.Errorf("failed to get reth address: %w", err)
 	}
 	rethAddress, err := rocketStorage.UnpackGetAddress(rethAddressResponsePacked)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unpack reth address: %w", err)
+		return fmt.Errorf("failed to unpack reth address: %w", err)
 	}
 
 	// smoothingPoolAddressKey is a keccak256 of "contract.addressrocketSmoothingPool"
 	smoothingPoolAddressKey := common.HexToHash("0x822231720aef9b264db1d9ca053137498f759c28b243f45c44db1d39d6bce46e")
 	smoothingPoolAddressCallPacked := rocketStorage.PackGetAddress(smoothingPoolAddressKey)
-	smoothingPoolAddressResponsePacked, err := storageInstance.CallRaw(&opts, smoothingPoolAddressCallPacked)
+	smoothingPoolAddressResponsePacked, err := storageInstance.CallRaw(opts, smoothingPoolAddressCallPacked)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get smoothing pool address: %w", err)
+		return fmt.Errorf("failed to get smoothing pool address: %w", err)
 	}
 	smoothingPoolAddress, err := rocketStorage.UnpackGetAddress(smoothingPoolAddressResponsePacked)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unpack smoothing pool address: %w", err)
+		return fmt.Errorf("failed to unpack smoothing pool address: %w", err)
 	}
 
-	return &Multicall{
-		client:                              client,
-		multicallInstance:                   multicall3.Instance(client, contractAddress),
-		rocketNodeManagerAddress:            nodeManagerAddress,
-		rocketNodeDistributorFactoryAddress: nodeDistributorFactoryAddress,
-		rocketMinipoolManagerAddress:        minipoolManagerAddress,
-		rocketDaoNodeTrustedInstance:        rocketDaoNodeTrusted.Instance(client, rocketDAONodeTrustedAddress),
-		rocketTokenREthAddress:              rethAddress,
-		rocketSmoothingPoolAddress:          smoothingPoolAddress,
-		NodeBatchSize:                       100,
-	}, nil
+	m.rocketNodeManagerAddress = nodeManagerAddress
+	m.rocketNodeDistributorFactoryAddress = nodeDistributorFactoryAddress
+	m.rocketMinipoolManagerAddress = minipoolManagerAddress
+	m.rocketDaoNodeTrustedInstance = rocketDaoNodeTrusted.Instance(m.client, rocketDAONodeTrustedAddress)
+	m.rocketTokenREthAddress = rethAddress
+	m.rocketSmoothingPoolAddress = smoothingPoolAddress
+
+	return nil
 }
 
 func (m *Multicall) GetAllNodes(opts *bind.CallOpts) (map[common.Address]*NodeInfo, error) {
@@ -436,4 +463,56 @@ func (m *Multicall) GetREthAddress() common.Address {
 
 func (m *Multicall) GetSmoothingPoolAddress() common.Address {
 	return m.rocketSmoothingPoolAddress
+}
+
+func (m *Multicall) StakewiseFeeRecipient(opts *bind.CallOpts, address common.Address) (*common.Address, error) {
+	if m.SWVaultsRegistryAddr == "" {
+		return nil, errors.New("SWVaultsRegistryAddr is not set")
+	}
+	if m.vaultsChecker == nil {
+		m.vaultsChecker = stakewise.NewVaultsChecker(m.client, common.HexToAddress(m.SWVaultsRegistryAddr))
+	}
+
+	return m.vaultsChecker.IsVault(opts, address)
+}
+
+var ErrNoData = errors.New("no data were returned from the EVM, did you pass the correct smart contract wallet address?")
+var ErrBadData = errors.New("the evm returned data with an unexpected length, did you pass the correct smart contract wallet address?")
+var ErrInternal = errors.New("an internal error occurred, please contact the maintainers")
+
+func (m *Multicall) ValidateEIP1271(opts *bind.CallOpts, dataHash common.Hash, signature []byte, address common.Address) (bool, error) {
+	// Encode the function call
+	encodedData := eip1271.PackIsValidSignature(dataHash, signature)
+
+	// Make the contract call
+	data, err := m.client.CallContract(opts.Context, ethereum.CallMsg{
+		To:   &address,
+		Data: encodedData,
+	}, nil)
+	if err != nil {
+		return false, ErrInternal
+	}
+
+	if len(data) == 0 {
+		return false, ErrNoData
+	}
+
+	if len(data) < 4 {
+		return false, ErrBadData
+	}
+
+	// Trim the trailing bytes from the evm
+	data = data[:4]
+
+	// Check the return value, it should be exactly 4 bytes long
+	if len(data) != 4 {
+		return false, ErrBadData
+	}
+
+	// The expected return value for a valid signature is 0x1626ba7e
+	// bytes4(keccak256("isValidSignature(bytes32,bytes)")
+	// invalid signatures return 4 bytes that do not match the magic
+	expectedReturnValue := [4]byte{0x16, 0x26, 0xba, 0x7e}
+	return bytes.Equal(data, expectedReturnValue[:]), nil
+
 }

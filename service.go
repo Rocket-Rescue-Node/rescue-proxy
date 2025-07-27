@@ -13,7 +13,10 @@ import (
 	"github.com/Rocket-Rescue-Node/rescue-proxy/config"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer/dataprovider"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/router"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"go.uber.org/zap"
 )
 
@@ -86,14 +89,34 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 		}()
 	}
 
+	// Create the execution client
+	executionClient, err := ethclient.Dial(s.Config.ExecutionURL.String())
+	if err != nil {
+		s.errs <- fmt.Errorf("unable to init execution client: %w", err)
+		return
+	}
+
+	// Parse rocketstorage address
+	if !common.IsHexAddress(s.Config.RocketStorageAddr) {
+		s.errs <- fmt.Errorf("invalid rocket storage address: %s", s.Config.RocketStorageAddr)
+		return
+	}
+	rocketStorageAddr := common.HexToAddress(s.Config.RocketStorageAddr)
+
+	// Create a multicaller
+	mc, err := dataprovider.NewMulticall(s.ctx, executionClient, rocketStorageAddr, config.Multicall3Address)
+	if err != nil {
+		s.errs <- fmt.Errorf("unable to init multicall: %w", err)
+		return
+	}
+	mc.SWVaultsRegistryAddr = s.Config.SWVaultsRegistryAddr
+
 	// Connect to and initialize the execution layer
 	el := &executionlayer.CachingExecutionLayer{
-		ECURL:                s.Config.ExecutionURL,
-		RocketStorageAddr:    s.Config.RocketStorageAddr,
-		Logger:               s.Logger,
-		SWVaultsRegistryAddr: s.Config.SWVaultsRegistryAddr,
-		RefreshInterval:      s.Config.ExecutionRefreshInterval,
-		Context:              s.ctx,
+		DataProvider:    mc,
+		Logger:          s.Logger,
+		RefreshInterval: s.Config.ExecutionRefreshInterval,
+		Context:         s.ctx,
 	}
 	s.el = el
 	// Init() blocks until the cache is warmed up. This is good, we don't want to

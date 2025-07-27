@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/pkg/errors"
 )
 
@@ -38,6 +39,8 @@ func (c *CredentialSecrets) Set(arg string) error {
 	*c = append(*c, s)
 	return nil
 }
+
+var Multicall3Address = common.HexToAddress("0xcA11bde05977b3631167028862bE2a173976CA11")
 
 type Config struct {
 	BeaconURL                *url.URL

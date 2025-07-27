@@ -17,6 +17,7 @@ ABI_ENCODINGS = $(MULTICALL_ABI_DIR)/multicall_encoding.go \
 	$(MULTICALL_ABI_DIR)/rocketnodedistributorfactory_encoding.go \
 	$(MULTICALL_ABI_DIR)/rocketminipoolmanager_encoding.go \
 	$(MULTICALL_ABI_DIR)/rocketdaonodetrusted_encoding.go \
+	$(MULTICALL_ABI_DIR)/eip1271_encoding.go \
 	$(SW_DIR)/vaults-registry-encoding.go \
 	$(SW_DIR)/eth-priv-vault-encoding.go
 
@@ -36,6 +37,8 @@ executionlayer/dataprovider/abis/rocketminipoolmanager_encoding.go: executionlay
 	$(ABIGEN_CMD) --abi $< --pkg abis --type RocketMinipoolManager --out $@
 executionlayer/dataprovider/abis/rocketdaonodetrusted_encoding.go: executionlayer/dataprovider/abis/rocketdaonodetrusted_abi.json
 	$(ABIGEN_CMD) --abi $< --pkg abis --type RocketDaoNodeTrusted --out $@
+executionlayer/dataprovider/abis/eip1271_encoding.go: executionlayer/dataprovider/abis/eip1271_abi.json
+	$(ABIGEN_CMD) --abi $< --pkg abis --type EIP1271 --out $@
 
 .PHONY: protos
 protos: $(PROTO_DEPS)

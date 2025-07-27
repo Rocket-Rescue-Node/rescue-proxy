@@ -1,31 +1,20 @@
 package executionlayer
 
 import (
-	"bytes"
 	"context"
-	"encoding/hex"
-	"errors"
 	"fmt"
-	"net/url"
-	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer/dataprovider"
-	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer/stakewise"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
-	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 	rptypes "github.com/rocket-pool/smartnode/bindings/types"
 	"go.uber.org/zap"
 )
 
 type ForEachNodeClosure func(common.Address) bool
-
-const multicall3Addr = "0xcA11bde05977b3631167028862bE2a173976CA11"
 
 type RPInfo struct {
 	ExpectedFeeRecipient *common.Address
@@ -55,18 +44,12 @@ type cacheRCU struct {
 // that fee recipients are 'correct'.
 type CachingExecutionLayer struct {
 	// Fields passed in by the constructor which are later referenced
-	Logger               *zap.Logger
-	ECURL                *url.URL
-	RocketStorageAddr    string
-	SWVaultsRegistryAddr string
-	Context              context.Context
-	RefreshInterval      time.Duration
+	Logger          *zap.Logger
+	Context         context.Context
+	RefreshInterval time.Duration
+	DataProvider    dataprovider.DataProvider
 
-	client *ethclient.Client
-	cache  atomic.Pointer[cacheRCU]
-
-	// Checkers for vaults and mev escrow
-	vaultsChecker *stakewise.VaultsChecker
+	cache atomic.Pointer[cacheRCU]
 
 	m *metrics.MetricsRegistry
 
@@ -81,12 +64,10 @@ func (e *CachingExecutionLayer) newCache(loggerFunc func(fmt string, fields ...z
 		return fmt.Errorf("unable to init cache: %w", err)
 	}
 
-	rocketStorageAddr := common.HexToAddress(e.RocketStorageAddr)
-
 	// First, get the current block
 	ctx, cancel := context.WithTimeout(e.Context, 5*time.Second)
 	defer cancel()
-	header, err := e.client.HeaderByNumber(ctx, nil)
+	header, err := e.DataProvider.HeaderByNumber(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -99,21 +80,20 @@ func (e *CachingExecutionLayer) newCache(loggerFunc func(fmt string, fields ...z
 	// Create opts to query state at the latest block
 	opts := &bind.CallOpts{BlockNumber: header.Number, Context: mcCtx}
 
+	// Refresh the addresses from rocketStorage in case there has been a protocol upgrade
+	e.DataProvider.RefreshAddresses(opts)
+
 	loggerFunc("Warming up the cache")
 
 	// Get all nodes at the given block
-	mc, err := dataprovider.NewMulticall(e.Context, e.client, rocketStorageAddr, common.HexToAddress(multicall3Addr))
-	if err != nil {
-		return fmt.Errorf("error initializing multicall3 dataprovider: %w", err)
-	}
-	nodes, err := mc.GetAllNodes(opts)
+	nodes, err := e.DataProvider.GetAllNodes(opts)
 	if err != nil {
 		return fmt.Errorf("error getting all nodes: %w", err)
 	}
 	loggerFunc("Loaded nodes", zap.Int("count", len(nodes)), zap.Int64("block", opts.BlockNumber.Int64()))
 
 	// Get all minipools at the given block
-	minipools, err := mc.GetAllMinipools(nodes, opts)
+	minipools, err := e.DataProvider.GetAllMinipools(nodes, opts)
 	if err != nil {
 		return fmt.Errorf("error getting all minipools: %w", err)
 	}
@@ -150,7 +130,7 @@ func (e *CachingExecutionLayer) newCache(loggerFunc func(fmt string, fields ...z
 	}
 
 	// Get all odao nodes at the given block
-	odaoNodes, err := mc.GetAllOdaoNodes(opts)
+	odaoNodes, err := e.DataProvider.GetAllOdaoNodes(opts)
 	if err != nil {
 		return fmt.Errorf("error getting all odao nodes: %w", err)
 	}
@@ -164,8 +144,8 @@ func (e *CachingExecutionLayer) newCache(loggerFunc func(fmt string, fields ...z
 	}
 	loggerFunc("Loaded odao nodes", zap.Int("count", len(odaoNodes)), zap.Int64("block", opts.BlockNumber.Int64()))
 
-	smoothingPoolAddress := mc.GetSmoothingPoolAddress()
-	rethAddress := mc.GetREthAddress()
+	smoothingPoolAddress := e.DataProvider.GetSmoothingPoolAddress()
+	rethAddress := e.DataProvider.GetREthAddress()
 
 	// Set highestBlock to the cache's highestBlock, since it was just warmed up
 	out.setHighestBlock(opts.BlockNumber)
@@ -181,30 +161,11 @@ func (e *CachingExecutionLayer) newCache(loggerFunc func(fmt string, fields ...z
 
 // Init creates and warms up the ExecutionLayer cache.
 func (e *CachingExecutionLayer) Init() error {
-	var err error
 
 	e.m = metrics.NewMetricsRegistry("execution_layer")
-	// Make sure RocketStorageAddr is a valid address
-	decoded, err := hex.DecodeString(e.RocketStorageAddr[2:])
-	if err != nil {
-		return fmt.Errorf("invalid rocket storage address: %w", err)
-	}
-	if len(decoded) != len(common.Address{}) {
-		return fmt.Errorf("invalid rocket storage address: %w", err)
-	}
 
 	if e.RefreshInterval == 0 {
 		return fmt.Errorf("must specify refresh interval")
-	}
-
-	e.client, err = ethclient.Dial(e.ECURL.String())
-	if err != nil {
-		return err
-	}
-
-	// Set up the vaults checker
-	if e.SWVaultsRegistryAddr != "" {
-		e.vaultsChecker = stakewise.NewVaultsChecker(e.client, common.HexToAddress(e.SWVaultsRegistryAddr))
 	}
 
 	if e.Context == nil {
@@ -227,7 +188,9 @@ func (e *CachingExecutionLayer) Init() error {
 				return
 			case <-e.ticker.C:
 				e.Logger.Info("Refreshing cache")
-				e.newCache(e.Logger.Debug)
+				if err := e.newCache(e.Logger.Debug); err != nil {
+					e.Logger.Error("error refreshing cache", zap.Error(err))
+				}
 			}
 		}
 	}()
@@ -302,75 +265,11 @@ func (e *CachingExecutionLayer) REthAddress() *common.Address {
 	return &c.rethAddress
 }
 
-// EIP1271ABI is the ABI for the EIP-1271 isValidSignature function
-var eip1271ABI *abi.ABI
-
-// getEIP1271ABI returns the EIP1271ABI
-func getEIP1271ABI() *abi.ABI {
-	if eip1271ABI != nil {
-		return eip1271ABI
-	}
-
-	const abiJSON = `[{"inputs":[{"name":"_hash","type":"bytes32"},{"name":"_signature","type":"bytes"}],"name":"isValidSignature","outputs":[{"type":"bytes4"}],"stateMutability":"view","type":"function"}]`
-	parsedABI, err := abi.JSON(strings.NewReader(abiJSON))
-	if err != nil {
-		panic(fmt.Sprintf("failed to parse EIP1271 ABI: %v", err))
-	}
-	eip1271ABI = &parsedABI
-	return eip1271ABI
-}
-
-var ErrNoData = errors.New("no data were returned from the EVM, did you pass the correct smart contract wallet address?")
-var ErrBadData = errors.New("the evm returned data with an unexpected length, did you pass the correct smart contract wallet address?")
-var ErrInternal = errors.New("an internal error occurred, please contact the maintainers")
-
 // ValidateEIP1271 validates an EIP-1271 signature
 func (e *CachingExecutionLayer) ValidateEIP1271(ctx context.Context, dataHash common.Hash, signature []byte, address common.Address) (bool, error) {
-	parsedABI := getEIP1271ABI()
-
-	// Encode the function call
-	encodedData, err := parsedABI.Pack("isValidSignature", dataHash, signature)
-	if err != nil {
-		e.Logger.Warn("error packing isValidSignature call", zap.Error(err))
-		return false, ErrInternal
-	}
-
-	// Make the contract call
-	data, err := e.client.CallContract(ctx, ethereum.CallMsg{
-		To:   &address,
-		Data: encodedData,
-	}, nil)
-	if err != nil {
-		e.Logger.Warn("error querying the execution client to validate an EIP1271 signature", zap.Error(err))
-		return false, ErrInternal
-	}
-
-	if len(data) == 0 {
-		return false, ErrNoData
-	}
-
-	if len(data) < 4 {
-		return false, ErrBadData
-	}
-
-	// Trim the trailing bytes from the evm
-	data = data[:4]
-
-	// Check the return value, it should be exactly 4 bytes long
-	if len(data) != 4 {
-		return false, ErrBadData
-	}
-
-	// The expected return value for a valid signature is 0x1626ba7e
-	// bytes4(keccak256("isValidSignature(bytes32,bytes)")
-	// invalid signatures return 4 bytes that do not match the magic
-	expectedReturnValue := [4]byte{0x16, 0x26, 0xba, 0x7e}
-	return bytes.Equal(data, expectedReturnValue[:]), nil
+	return e.DataProvider.ValidateEIP1271(&bind.CallOpts{Context: ctx}, dataHash, signature, address)
 }
 
 func (e *CachingExecutionLayer) StakewiseFeeRecipient(ctx context.Context, address common.Address) (*common.Address, error) {
-	if e.vaultsChecker != nil {
-		return e.vaultsChecker.IsVault(ctx, address)
-	}
-	return nil, nil
+	return e.DataProvider.StakewiseFeeRecipient(&bind.CallOpts{Context: ctx}, address)
 }
