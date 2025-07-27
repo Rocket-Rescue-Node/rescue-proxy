@@ -43,8 +43,11 @@ executionlayer/dataprovider/abis/vaultsregistry_encoding.go: $(MULTICALL_ABI_JSO
 executionlayer/dataprovider/abis/ethprivvault_encoding.go: $(MULTICALL_ABI_JSON_DIR)/eth-priv-vault.json
 	$(ABIGEN_CMD) --abi $< --pkg abis --type EthPrivVault --out $@
 
+$(PROTO_OUT):
+	mkdir -p $@
+
 .PHONY: protos
-protos: $(PROTO_DEPS)
+protos: $(PROTO_DEPS) $(PROTO_OUT)
 	protoc -I=./$(PROTO_IN) --go_out=paths=source_relative:$(PROTO_OUT) \
 		--go-grpc_out=paths=source_relative:$(PROTO_OUT) $(PROTO_DEPS)
 

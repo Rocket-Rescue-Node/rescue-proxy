@@ -19,3 +19,4 @@ rescue-proxy
 # vendor/
 
 executionlayer/dataprovider/abis/*_encoding.go
+pb/
