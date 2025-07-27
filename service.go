@@ -13,7 +13,10 @@ import (
 	"github.com/Rocket-Rescue-Node/rescue-proxy/config"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/consensuslayer"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer"
+	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer/dataprovider"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/router"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"go.uber.org/zap"
 )
 
@@ -86,12 +89,34 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 		}()
 	}
 
+	// Create the execution client
+	executionClient, err := ethclient.Dial(s.Config.ExecutionURL.String())
+	if err != nil {
+		s.errs <- fmt.Errorf("unable to init execution client: %w", err)
+		return
+	}
+
+	// Parse rocketstorage address
+	if !common.IsHexAddress(s.Config.RocketStorageAddr) {
+		s.errs <- fmt.Errorf("invalid rocket storage address: %s", s.Config.RocketStorageAddr)
+		return
+	}
+	rocketStorageAddr := common.HexToAddress(s.Config.RocketStorageAddr)
+
+	// Create a multicaller
+	mc, err := dataprovider.NewMulticall(s.ctx, executionClient, rocketStorageAddr, config.Multicall3Address)
+	if err != nil {
+		s.errs <- fmt.Errorf("unable to init multicall: %w", err)
+		return
+	}
+	mc.SWVaultsRegistryAddr = s.Config.SWVaultsRegistryAddr
+
 	// Connect to and initialize the execution layer
 	el := &executionlayer.CachingExecutionLayer{
-		ECURL:                s.Config.ExecutionURL,
-		RocketStorageAddr:    s.Config.RocketStorageAddr,
-		Logger:               s.Logger,
-		SWVaultsRegistryAddr: s.Config.SWVaultsRegistryAddr,
+		DataProvider:    mc,
+		Logger:          s.Logger,
+		RefreshInterval: s.Config.ExecutionRefreshInterval,
+		Context:         s.ctx,
 	}
 	s.el = el
 	// Init() blocks until the cache is warmed up. This is good, we don't want to
@@ -100,13 +125,6 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 		s.errs <- fmt.Errorf("unable to init Execution Layer client: %w", err)
 		return
 	}
-	// After Init() we still have to call Start() to subscribe to new blocks
-	go func() {
-		s.Logger.Info("Starting EL monitor")
-		if err := el.Start(); err != nil {
-			s.errs <- fmt.Errorf("EL error: %w", err)
-		}
-	}()
 
 	// Connect to and initialize the consensus layer
 	cl := consensuslayer.NewCachingConsensusLayer(s.Config.BeaconURL, s.Logger, s.Config.ForceBNJSON)
@@ -116,11 +134,6 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 	// On Init() it will create the client and warm the validator key cache, which
 	// is needed to serve responses to rescue-api
 	if err := cl.Init(s.ctx); err != nil {
-		// Optimization: serialize the EL cache by stopping it now so we can recover
-		// faster.
-		el.Stop()
-		// Only write the error to the channel after so we don't panic while writing
-		// the cache to disk
 		s.errs <- fmt.Errorf("unable to init Consensus Layer client: %w", err)
 		return
 	}
@@ -185,11 +198,6 @@ func (s *Service) run(ctx context.Context, errs chan error) {
 		s.Logger.Info("Error stopping internal API", zap.Error(err))
 	}
 	s.Logger.Info("Stopped internal API")
-
-	// Disconnect from the execution client as soon as feasible after shutting down http
-	// handlers so that we can serialize the cache
-	el.Stop()
-	s.Logger.Info("Stopped executionlayer")
 
 	// Disconnect from the consensus client
 	cl.Deinit()

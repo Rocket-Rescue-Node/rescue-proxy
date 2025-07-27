@@ -7,7 +7,9 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/pkg/errors"
 )
 
@@ -38,22 +40,25 @@ func (c *CredentialSecrets) Set(arg string) error {
 	return nil
 }
 
+var Multicall3Address = common.HexToAddress("0xcA11bde05977b3631167028862bE2a173976CA11")
+
 type Config struct {
-	BeaconURL            *url.URL
-	ExecutionURL         *url.URL
-	ListenAddr           string
-	APIListenAddr        string
-	AdminListenAddr      string
-	GRPCListenAddr       string
-	GRPCBeaconAddr       string
-	GRPCTLSCertFile      string
-	GRPCTLSKeyFile       string
-	RocketStorageAddr    string
-	SWVaultsRegistryAddr string
-	CredentialSecrets    CredentialSecrets
-	EnableSoloValidators bool
-	Debug                bool
-	ForceBNJSON          bool
+	BeaconURL                *url.URL
+	ExecutionURL             *url.URL
+	ListenAddr               string
+	APIListenAddr            string
+	AdminListenAddr          string
+	GRPCListenAddr           string
+	GRPCBeaconAddr           string
+	GRPCTLSCertFile          string
+	GRPCTLSKeyFile           string
+	RocketStorageAddr        string
+	SWVaultsRegistryAddr     string
+	CredentialSecrets        CredentialSecrets
+	EnableSoloValidators     bool
+	Debug                    bool
+	ForceBNJSON              bool
+	ExecutionRefreshInterval time.Duration
 }
 
 func InitFlags() *Config {
@@ -81,6 +86,7 @@ Use 'dd if=/dev/urandom bs=4 count=8 | base64' if you need to generate a new sec
 	enableSoloValidatorsFlag := flag.Bool("enable-solo-validators", true, "Whether or not to allow solo validators access.")
 	forceBNJSONFlag := flag.Bool("force-bn-json", false, "Disables SSZ in the BN.")
 	swiseVaultsRegistryAddrFlag := flag.String("swise-vaults-registry-addr", "0x3a0008a588772446f6e656133C2D5029CC4FC20E", "Address of the Stakewise Vaults Registry contract. Defaults to mainnet. Pass empty string to disable.")
+	executionRefreshInterval := flag.Duration("execution-refresh-interval", 32*12*time.Second, "Interval at which to refresh the execution layer cache. Defaults to once per epoch.")
 
 	flag.Parse()
 
@@ -173,5 +179,6 @@ Use 'dd if=/dev/urandom bs=4 count=8 | base64' if you need to generate a new sec
 	config.Debug = *debug
 	config.ForceBNJSON = *forceBNJSONFlag
 	config.SWVaultsRegistryAddr = *swiseVaultsRegistryAddrFlag
+	config.ExecutionRefreshInterval = *executionRefreshInterval
 	return config
 }

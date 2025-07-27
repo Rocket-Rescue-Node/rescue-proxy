@@ -1,31 +1,61 @@
-VERSION = v2.1.1
+VERSION = v3.0.0
+
+ABIGEN_CMD := go run github.com/ethereum/go-ethereum/cmd/abigen@v1.16.1 --v2
 
 SOURCEDIR := .
 SOURCES := $(shell find $(SOURCEDIR) -name '*.go')
 PROTO_IN := proto
 PROTO_OUT := pb
+PROTOS := $(PROTO_OUT)/api.pb.go $(PROTO_OUT)/api_grpc.pb.go
 PROTO_DEPS := $(wildcard $(PROTO_IN)/*.proto)
 
+MULTICALL_ABI_DIR := executionlayer/dataprovider/abis
+MULTICALL_ABI_JSON_DIR := $(MULTICALL_ABI_DIR)/json
+ABI_ENCODINGS = $(MULTICALL_ABI_DIR)/multicall_encoding.go \
+	$(MULTICALL_ABI_DIR)/rocketstorage_encoding.go \
+	$(MULTICALL_ABI_DIR)/rocketnodemanager_encoding.go \
+	$(MULTICALL_ABI_DIR)/rocketnodedistributorfactory_encoding.go \
+	$(MULTICALL_ABI_DIR)/rocketminipoolmanager_encoding.go \
+	$(MULTICALL_ABI_DIR)/rocketdaonodetrusted_encoding.go \
+	$(MULTICALL_ABI_DIR)/eip1271_encoding.go \
+	$(MULTICALL_ABI_DIR)/vaultsregistry_encoding.go \
+	$(MULTICALL_ABI_DIR)/ethprivvault_encoding.go
+
 .PHONY: all
-all: protos
+all: $(PROTOS) $(ABI_ENCODINGS)
 	go build .
 
-.PHONY: protos
-protos: $(PROTO_DEPS)
+executionlayer/dataprovider/abis/multicall_encoding.go: $(MULTICALL_ABI_JSON_DIR)/multicall_abi.json
+	$(ABIGEN_CMD) --abi $< --pkg abis --type Multicall3 --out $@
+executionlayer/dataprovider/abis/rocketstorage_encoding.go: $(MULTICALL_ABI_JSON_DIR)/rocketstorage_abi.json
+	$(ABIGEN_CMD) --abi $< --pkg abis --type RocketStorage --out $@
+executionlayer/dataprovider/abis/rocketnodemanager_encoding.go: $(MULTICALL_ABI_JSON_DIR)/rocketnodemanager_abi.json
+	$(ABIGEN_CMD) --abi $< --pkg abis --type RocketNodeManager --out $@
+executionlayer/dataprovider/abis/rocketnodedistributorfactory_encoding.go: $(MULTICALL_ABI_JSON_DIR)/rocketnodedistributorfactory_abi.json
+	$(ABIGEN_CMD) --abi $< --pkg abis --type RocketNodeDistributorFactory --out $@
+executionlayer/dataprovider/abis/rocketminipoolmanager_encoding.go: $(MULTICALL_ABI_JSON_DIR)/rocketminipoolmanager_abi.json
+	$(ABIGEN_CMD) --abi $< --pkg abis --type RocketMinipoolManager --out $@
+executionlayer/dataprovider/abis/rocketdaonodetrusted_encoding.go: $(MULTICALL_ABI_JSON_DIR)/rocketdaonodetrusted_abi.json
+	$(ABIGEN_CMD) --abi $< --pkg abis --type RocketDaoNodeTrusted --out $@
+executionlayer/dataprovider/abis/eip1271_encoding.go: $(MULTICALL_ABI_JSON_DIR)/eip1271_abi.json
+	$(ABIGEN_CMD) --abi $< --pkg abis --type EIP1271 --out $@
+executionlayer/dataprovider/abis/vaultsregistry_encoding.go: $(MULTICALL_ABI_JSON_DIR)/vaults-registry.json
+	$(ABIGEN_CMD) --abi $< --pkg abis --type VaultsRegistry --out $@
+executionlayer/dataprovider/abis/ethprivvault_encoding.go: $(MULTICALL_ABI_JSON_DIR)/eth-priv-vault.json
+	$(ABIGEN_CMD) --abi $< --pkg abis --type EthPrivVault --out $@
+
+$(PROTO_OUT):
+	mkdir -p $@
+
+$(PROTOS): $(PROTO_DEPS) $(PROTO_OUT)
 	protoc -I=./$(PROTO_IN) --go_out=paths=source_relative:$(PROTO_OUT) \
 		--go-grpc_out=paths=source_relative:$(PROTO_OUT) $(PROTO_DEPS)
-
-SW_DIR := executionlayer/stakewise
-ABI_DIR := $(SW_DIR)/abis
-$(SW_DIR)/vaults-registry-encoding.go: $(ABI_DIR)/vaults-registry.json
-	go run github.com/ethereum/go-ethereum/cmd/abigen@v1.15.11 --v2 --abi $< --pkg stakewise --type vaultsRegistry --out $@
-$(SW_DIR)/eth-priv-vault-encoding.go: $(ABI_DIR)/eth-priv-vault.json
-	go run github.com/ethereum/go-ethereum/cmd/abigen@v1.15.11 --v2 --abi $< --pkg stakewise --type ethPrivVault --out $@
 
 .PHONY: clean
 clean:
 	rm -f pb/*
 	rm -f api-client
+	rm -f $(ABI_ENCODINGS)
 
 .PHONY: docker
 docker: all

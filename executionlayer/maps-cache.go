@@ -2,9 +2,9 @@ package executionlayer
 
 import (
 	"fmt"
-	"math/big"
 	"sync"
 
+	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer/dataprovider"
 	"github.com/ethereum/go-ethereum/common"
 	rptypes "github.com/rocket-pool/smartnode/bindings/types"
 )
@@ -29,11 +29,6 @@ type MapsCache struct {
 	// We store oDAO nodes for the api. We need to be able to remove them if they're
 	// kicked or leave, so this is a map of address -> bool
 	odaoNodeIndex *sync.Map
-
-	// We need to detect gaps in the event stream when there are connection issues, and
-	// backfill missing data, so we keep track of the highest block for which we received
-	// an event here.
-	highestBlock *big.Int
 }
 
 func (m *MapsCache) init() error {
@@ -41,7 +36,6 @@ func (m *MapsCache) init() error {
 	m.minipoolIndex = &sync.Map{}
 	m.nodeIndex = &sync.Map{}
 	m.odaoNodeIndex = &sync.Map{}
-	m.highestBlock = big.NewInt(0)
 	return nil
 }
 
@@ -66,14 +60,14 @@ func (m *MapsCache) addMinipoolNode(pubkey rptypes.ValidatorPubkey, nodeAddr com
 	return nil
 }
 
-func (m *MapsCache) getNodeInfo(nodeAddr common.Address) (*nodeInfo, error) {
+func (m *MapsCache) getNodeInfo(nodeAddr common.Address) (*dataprovider.NodeInfo, error) {
 
 	void, ok := m.nodeIndex.Load(nodeAddr)
 	if !ok {
 		return nil, &NotFoundError{}
 	}
 
-	nodeInfo, ok := void.(*nodeInfo)
+	nodeInfo, ok := void.(*dataprovider.NodeInfo)
 	if !ok {
 		return nil, fmt.Errorf("could not convert cache result into *nodeInfo")
 	}
@@ -81,7 +75,7 @@ func (m *MapsCache) getNodeInfo(nodeAddr common.Address) (*nodeInfo, error) {
 	return nodeInfo, nil
 }
 
-func (m *MapsCache) addNodeInfo(nodeAddr common.Address, node *nodeInfo) error {
+func (m *MapsCache) addNodeInfo(nodeAddr common.Address, node *dataprovider.NodeInfo) error {
 
 	m.nodeIndex.Store(nodeAddr, node)
 	return nil
@@ -117,27 +111,4 @@ func (m *MapsCache) forEachOdaoNode(closure ForEachNodeClosure) error {
 	})
 
 	return nil
-}
-
-func (m *MapsCache) setHighestBlock(block *big.Int) {
-	if m.highestBlock.Cmp(block) >= 0 {
-		return
-	}
-
-	// Someone else owns this pointer, so make a new one
-	m.highestBlock = big.NewInt(0)
-	m.highestBlock.Add(block, m.highestBlock)
-}
-
-func (m *MapsCache) getHighestBlock() *big.Int {
-
-	return m.highestBlock
-}
-
-func (m *MapsCache) deinit() error {
-	return nil
-}
-
-func (m *MapsCache) reset() error {
-	return m.init()
 }

@@ -51,7 +51,8 @@ func (c *EthPrivVault) Instance(backend bind.ContractBackend, addr common.Addres
 }
 
 // PackMevEscrow is the Go binding used to pack the parameters required for calling
-// the contract method with ID 0x3229fa95.
+// the contract method with ID 0x3229fa95.  This method will panic if any
+// invalid/nil inputs are passed.
 //
 // Solidity: function mevEscrow() view returns(address)
 func (ethPrivVault *EthPrivVault) PackMevEscrow() []byte {
@@ -60,6 +61,15 @@ func (ethPrivVault *EthPrivVault) PackMevEscrow() []byte {
 		panic(err)
 	}
 	return enc
+}
+
+// TryPackMevEscrow is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0x3229fa95.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function mevEscrow() view returns(address)
+func (ethPrivVault *EthPrivVault) TryPackMevEscrow() ([]byte, error) {
+	return ethPrivVault.abi.Pack("mevEscrow")
 }
 
 // UnpackMevEscrow is the Go binding that unpacks the parameters returned
@@ -72,5 +82,5 @@ func (ethPrivVault *EthPrivVault) UnpackMevEscrow(data []byte) (common.Address, 
 		return *new(common.Address), err
 	}
 	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
-	return out0, err
+	return out0, nil
 }

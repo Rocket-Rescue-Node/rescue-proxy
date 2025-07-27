@@ -51,7 +51,8 @@ func (c *VaultsRegistry) Instance(backend bind.ContractBackend, addr common.Addr
 }
 
 // PackVaults is the Go binding used to pack the parameters required for calling
-// the contract method with ID 0xa622ee7c.
+// the contract method with ID 0xa622ee7c.  This method will panic if any
+// invalid/nil inputs are passed.
 //
 // Solidity: function vaults(address ) view returns(bool)
 func (vaultsRegistry *VaultsRegistry) PackVaults(arg0 common.Address) []byte {
@@ -60,6 +61,15 @@ func (vaultsRegistry *VaultsRegistry) PackVaults(arg0 common.Address) []byte {
 		panic(err)
 	}
 	return enc
+}
+
+// TryPackVaults is the Go binding used to pack the parameters required for calling
+// the contract method with ID 0xa622ee7c.  This method will return an error
+// if any inputs are invalid/nil.
+//
+// Solidity: function vaults(address ) view returns(bool)
+func (vaultsRegistry *VaultsRegistry) TryPackVaults(arg0 common.Address) ([]byte, error) {
+	return vaultsRegistry.abi.Pack("vaults", arg0)
 }
 
 // UnpackVaults is the Go binding that unpacks the parameters returned
@@ -72,5 +82,5 @@ func (vaultsRegistry *VaultsRegistry) UnpackVaults(data []byte) (bool, error) {
 		return *new(bool), err
 	}
 	out0 := *abi.ConvertType(out[0], new(bool)).(*bool)
-	return out0, err
+	return out0, nil
 }
