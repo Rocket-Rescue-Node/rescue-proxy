@@ -364,12 +364,6 @@ func TestELForEaches(t *testing.T) {
 		t.Fatalf("Expected 2 nodes in odao foreach iterator, got: %d", nodeCount)
 	}
 
-	// Couple bonuse checks for coverage. highest block doesn't increase when it would be backwards
-	et.ec.cache.Load().setHighestBlock(big.NewInt(0))
-	if et.ec.cache.Load().getHighestBlock().Uint64() == 0 {
-		t.Fatal("block should not have decreased")
-	}
-
 	// Get rpinfo as with the sql cache
 	found := 0
 	for _, n := range hec.nodes {

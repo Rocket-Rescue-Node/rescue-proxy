@@ -150,9 +150,6 @@ func (e *CachingExecutionLayer) newCache(loggerFunc func(fmt string, fields ...z
 	smoothingPoolAddress := e.DataProvider.GetSmoothingPoolAddress()
 	rethAddress := e.DataProvider.GetREthAddress()
 
-	// Set highestBlock to the cache's highestBlock, since it was just warmed up
-	out.setHighestBlock(opts.BlockNumber)
-
 	loggerFunc("Loaded nodes and minipools snapshot",
 		zap.Int("nodes", len(nodes)),
 		zap.Int("minipools", minipoolCount),
@@ -189,7 +186,10 @@ func (e *CachingExecutionLayer) Init() error {
 					e.Logger.Info("Refreshing cache")
 					if err := e.newCache(e.Logger.Debug); err != nil {
 						e.Logger.Error("error refreshing cache", zap.Error(err))
+						e.m.Counter("cache_refresh_error").Inc()
+						continue
 					}
+					e.m.Counter("cache_refresh_success").Inc()
 				}
 			}
 		}()
