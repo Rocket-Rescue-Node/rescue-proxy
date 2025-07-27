@@ -183,7 +183,6 @@ func (e *CachingExecutionLayer) Init() error {
 		for {
 			select {
 			case <-e.Context.Done():
-				e.Logger.Info("Stopping cache refresh")
 				e.ticker.Stop()
 				return
 			case <-e.ticker.C:
