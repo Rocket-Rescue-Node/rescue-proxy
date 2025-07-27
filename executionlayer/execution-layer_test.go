@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -48,9 +50,8 @@ func setup(t *testing.T, m *mockEC) *elTest {
 		t.Fatal(err)
 	}
 	out.ec = &CachingExecutionLayer{
-		Logger:          zaptest.NewLogger(t),
-		Context:         t.Context(),
-		RefreshInterval: 1 * time.Minute,
+		Logger:  zaptest.NewLogger(t),
+		Context: t.Context(),
 	}
 	out.ec.DataProvider = out.m
 	return out
@@ -82,11 +83,23 @@ func (m *mockEC) GetAllNodes(opts *bind.CallOpts) (map[common.Address]*dataprovi
 	return out, nil
 }
 
+func pubkeyFromMinipool(addr common.Address) string {
+	// Simply left-pad with a char out to the desired length
+	return fmt.Sprintf("f0f0%092s", addr.String()[2:])
+}
+
 func (m *mockEC) GetAllMinipools(nodes map[common.Address]*dataprovider.NodeInfo, opts *bind.CallOpts) (map[common.Address][]rptypes.ValidatorPubkey, error) {
 	out := make(map[common.Address][]rptypes.ValidatorPubkey)
 	for _, node := range m.nodes {
-		for pubkey := range node.minipoolMap {
-			out[node.addr] = append(out[node.addr], pubkey)
+		node.minipoolMap = make(map[rptypes.ValidatorPubkey]interface{})
+		for range node.minipools {
+			pubkey := pubkeyFromMinipool(node.addr)
+			h, err := hex.DecodeString(pubkey)
+			if err != nil {
+				return nil, errors.New("unexpected invalid pubkey")
+			}
+			out[node.addr] = append(out[node.addr], rptypes.BytesToValidatorPubkey(h))
+			node.minipoolMap[rptypes.BytesToValidatorPubkey(h)] = struct{}{}
 		}
 	}
 	return out, nil
@@ -196,6 +209,46 @@ func TestELGetRPInfoMissing(t *testing.T) {
 	}
 	if rpinfo != nil {
 		t.Fatal("unexpected rp info", rpinfo)
+	}
+}
+
+func TestELGetRPInfo(t *testing.T) {
+	mockEC := &mockEC{t,
+		[]*mockNode{
+			{
+				addr:      common.HexToAddress("0x0000000000000000000001234567899876543210"),
+				inSP:      true,
+				minipools: 1,
+			},
+			{
+				addr:      common.HexToAddress("0x0000000000000000000002234567899876543210"),
+				inSP:      false,
+				minipools: 3,
+			},
+		},
+		[]*mockNode{
+			{
+				addr:      common.HexToAddress("0x0000000000222222222222222222222222222222"),
+				inSP:      false,
+				minipools: 0,
+			},
+		},
+	}
+	et := setup(t, mockEC)
+	if err := et.ec.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, node := range mockEC.nodes {
+		for pubkey := range node.minipoolMap {
+			rpinfo, err := et.ec.GetRPInfo(pubkey)
+			if err != nil {
+				t.Fatal("unexpected error", err)
+			}
+			if rpinfo == nil {
+				t.Fatal("expected rp info", rpinfo)
+			}
+		}
 	}
 }
 

@@ -164,10 +164,6 @@ func (e *CachingExecutionLayer) Init() error {
 
 	e.m = metrics.NewMetricsRegistry("execution_layer")
 
-	if e.RefreshInterval == 0 {
-		return fmt.Errorf("must specify refresh interval")
-	}
-
 	if e.Context == nil {
 		e.Context = context.Background()
 	}
@@ -177,22 +173,24 @@ func (e *CachingExecutionLayer) Init() error {
 	}
 
 	// Once the cache is warm, start a background process to refresh it
-	e.ticker = time.NewTicker(e.RefreshInterval)
-	go func() {
-		e.Logger.Info("Starting cache refresh", zap.Duration("interval", e.RefreshInterval))
-		for {
-			select {
-			case <-e.Context.Done():
-				e.ticker.Stop()
-				return
-			case <-e.ticker.C:
-				e.Logger.Info("Refreshing cache")
-				if err := e.newCache(e.Logger.Debug); err != nil {
-					e.Logger.Error("error refreshing cache", zap.Error(err))
+	if e.RefreshInterval > 0 {
+		e.ticker = time.NewTicker(e.RefreshInterval)
+		go func() {
+			e.Logger.Info("Starting cache refresh", zap.Duration("interval", e.RefreshInterval))
+			for {
+				select {
+				case <-e.Context.Done():
+					e.ticker.Stop()
+					return
+				case <-e.ticker.C:
+					e.Logger.Info("Refreshing cache")
+					if err := e.newCache(e.Logger.Debug); err != nil {
+						e.Logger.Error("error refreshing cache", zap.Error(err))
+					}
 				}
 			}
-		}
-	}()
+		}()
+	}
 
 	return nil
 }
