@@ -1,4 +1,4 @@
-VERSION = v3.0.0
+VERSION = v3.0.1
 
 ABIGEN_CMD := go run github.com/ethereum/go-ethereum/cmd/abigen@v1.16.1 --v2
 
@@ -76,5 +76,5 @@ cov.out: $(SOURCES)
 testcov: cov.out
 	go tool cover -html=cov.out
 
-./api-client: protos
+./api-client: $(PROTOS)
 	go build -o api-client api/client/main.go
