@@ -6,6 +6,7 @@ SOURCEDIR := .
 SOURCES := $(shell find $(SOURCEDIR) -name '*.go')
 PROTO_IN := proto
 PROTO_OUT := pb
+PROTOS := $(PROTO_OUT)/api.pb.go $(PROTO_OUT)/api_grpc.pb.go
 PROTO_DEPS := $(wildcard $(PROTO_IN)/*.proto)
 
 MULTICALL_ABI_DIR := executionlayer/dataprovider/abis
@@ -21,7 +22,7 @@ ABI_ENCODINGS = $(MULTICALL_ABI_DIR)/multicall_encoding.go \
 	$(MULTICALL_ABI_DIR)/ethprivvault_encoding.go
 
 .PHONY: all
-all: protos $(ABI_ENCODINGS)
+all: $(PROTOS) $(ABI_ENCODINGS)
 	go build .
 
 executionlayer/dataprovider/abis/multicall_encoding.go: $(MULTICALL_ABI_JSON_DIR)/multicall_abi.json
@@ -46,8 +47,7 @@ executionlayer/dataprovider/abis/ethprivvault_encoding.go: $(MULTICALL_ABI_JSON_
 $(PROTO_OUT):
 	mkdir -p $@
 
-.PHONY: protos
-protos: $(PROTO_DEPS) $(PROTO_OUT)
+$(PROTOS): $(PROTO_DEPS) $(PROTO_OUT)
 	protoc -I=./$(PROTO_IN) --go_out=paths=source_relative:$(PROTO_OUT) \
 		--go-grpc_out=paths=source_relative:$(PROTO_OUT) $(PROTO_DEPS)
 
