@@ -81,7 +81,10 @@ func (e *CachingExecutionLayer) newCache(loggerFunc func(fmt string, fields ...z
 	opts := &bind.CallOpts{BlockNumber: header.Number, Context: mcCtx}
 
 	// Refresh the addresses from rocketStorage in case there has been a protocol upgrade
-	e.DataProvider.RefreshAddresses(opts)
+	err = e.DataProvider.RefreshAddresses(opts)
+	if err != nil {
+		loggerFunc("Error refreshing addresses", zap.Error(err))
+	}
 
 	loggerFunc("Warming up the cache")
 
