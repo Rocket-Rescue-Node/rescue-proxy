@@ -1,4 +1,4 @@
-VERSION = v2.1.1
+VERSION = v3.0.0
 
 ABIGEN_CMD := go run github.com/ethereum/go-ethereum/cmd/abigen@v1.16.1 --v2
 
