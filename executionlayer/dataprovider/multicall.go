@@ -349,14 +349,14 @@ func (m *Multicall) GetAllMinipools(nodes map[common.Address]*NodeInfo, opts *bi
 	addressCalls := make([]minipoolAddressCall, 0, len(nodeInfos))
 	for _, node := range nodeInfos {
 		node.minipools = make([]common.Address, node.minipoolCount.Int64())
-		for j := big.NewInt(0); j.Cmp(node.minipoolCount) < 0; j.Add(j, big.NewInt(1)) {
+		for j := int64(0); j < node.minipoolCount.Int64(); j++ {
 			addressCalls = append(addressCalls, minipoolAddressCall{
 				call: abis.Multicall3Call3{
 					Target:       m.rocketMinipoolManagerAddress,
 					AllowFailure: false,
-					CallData:     rocketMinipoolManager.PackGetNodeMinipoolAt(node.address, big.NewInt(0).Set(j)),
+					CallData:     rocketMinipoolManager.PackGetNodeMinipoolAt(node.address, big.NewInt(j)),
 				},
-				dst: &node.minipools[j.Int64()],
+				dst: &node.minipools[j],
 			})
 		}
 	}
@@ -380,6 +380,10 @@ func (m *Multicall) GetAllMinipools(nodes map[common.Address]*NodeInfo, opts *bi
 			return nil, fmt.Errorf("failed to unpack multicall response: %w", err)
 		}
 
+		if len(mcResponse) != len(batch) {
+			return nil, fmt.Errorf("expected %d responses, got %d", len(batch), len(mcResponse))
+		}
+
 		for j := range batch {
 			rawResult := mcResponse[j].ReturnData
 			minipoolAddress, err := rocketMinipoolManager.UnpackGetNodeMinipoolAt(rawResult)
@@ -397,19 +401,19 @@ func (m *Multicall) GetAllMinipools(nodes map[common.Address]*NodeInfo, opts *bi
 	pubkeyCalls := make([]minipoolPubkeyCall, 0, len(nodeInfos))
 	for _, node := range nodeInfos {
 		node.validators = make([]rptypes.ValidatorPubkey, node.minipoolCount.Int64())
-		for j := big.NewInt(0); j.Cmp(node.minipoolCount) < 0; j.Add(j, big.NewInt(1)) {
+		for j := int64(0); j < node.minipoolCount.Int64(); j++ {
 			pubkeyCalls = append(pubkeyCalls, minipoolPubkeyCall{
 				call: abis.Multicall3Call3{
 					Target:       m.rocketMinipoolManagerAddress,
 					AllowFailure: false,
-					CallData:     rocketMinipoolManager.PackGetMinipoolPubkey(node.minipools[j.Int64()]),
+					CallData:     rocketMinipoolManager.PackGetMinipoolPubkey(node.minipools[j]),
 				},
-				dst: &node.validators[j.Int64()],
+				dst: &node.validators[j],
 			})
 		}
 	}
 	// Working 500 calls at a time, get the minipool pubkeys
-	for i := 0; i < len(nodeInfos); i += m.NodeBatchSize {
+	for i := 0; i < len(pubkeyCalls); i += m.NodeBatchSize {
 		batch := pubkeyCalls[i:min(i+m.NodeBatchSize, len(pubkeyCalls))]
 
 		calls := make([]abis.Multicall3Call3, 0, len(batch))
@@ -427,13 +431,17 @@ func (m *Multicall) GetAllMinipools(nodes map[common.Address]*NodeInfo, opts *bi
 			return nil, fmt.Errorf("failed to unpack multicall response: %w", err)
 		}
 
+		if len(mcResponse) != len(batch) {
+			return nil, fmt.Errorf("expected %d responses, got %d", len(batch), len(mcResponse))
+		}
+
 		for j := range batch {
 			rawResult := mcResponse[j].ReturnData
 			minipoolPubkey, err := rocketMinipoolManager.UnpackGetMinipoolPubkey(rawResult)
 			if err != nil {
 				return nil, fmt.Errorf("failed to unpack minipool pubkey: %w", err)
 			}
-			*batch[j].dst = rptypes.ValidatorPubkey(minipoolPubkey)
+			copy((*batch[j].dst)[:], minipoolPubkey)
 		}
 	}
 
