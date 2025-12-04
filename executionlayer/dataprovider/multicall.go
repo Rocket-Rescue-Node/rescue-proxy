@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 
 	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer/dataprovider/abis"
 	"github.com/Rocket-Rescue-Node/rescue-proxy/executionlayer/stakewise"
@@ -33,6 +34,84 @@ type Multicall struct {
 
 	// Checkers for vaults and mev escrow
 	vaultsChecker *stakewise.VaultsChecker
+}
+
+// Call is the generic type that represents a unresolved multicall3
+// query. It can be de-genericified with getCallRecord().
+type call[T any] struct {
+	ContractAddress common.Address
+	PackedCall      []byte
+	Unpacker        func([]byte) (T, error)
+	Destination     *T
+}
+
+func (c call[T]) getCallRecord() callRecord {
+	return callRecord{
+		multicall3Call3: abis.Multicall3Call3{
+			Target:       c.ContractAddress,
+			AllowFailure: false,
+			CallData:     c.PackedCall,
+		},
+		unpack: func(rawResult []byte) error {
+			var err error
+			*c.Destination, err = c.Unpacker(rawResult)
+			return err
+		},
+	}
+}
+
+// callRecord is a wrapper around a Multicall3Call3 that has an unpacker
+// function. Executing a callRecord will query the client and unpack the result.
+type callRecord struct {
+	multicall3Call3 abis.Multicall3Call3
+	unpack          func([]byte) error
+}
+
+type callRecords []callRecord
+
+func (calls callRecords) execute(multicallInstance *bind.BoundContract, opts *bind.CallOpts) error {
+	mcCalls := make([]abis.Multicall3Call3, 0, len(calls))
+	for _, call := range calls {
+		mcCalls = append(mcCalls, call.multicall3Call3)
+	}
+	mcPacked := multicall3.PackAggregate3(mcCalls)
+	mcResponsePacked, err := multicallInstance.CallRaw(opts, mcPacked)
+	if err != nil {
+		return fmt.Errorf("failed to call multicall: %w", err)
+	}
+	mcResponse, err := multicall3.UnpackAggregate3(mcResponsePacked)
+	if err != nil {
+		return fmt.Errorf("failed to unpack multicall response: %w", err)
+	}
+
+	if len(mcResponse) != len(calls) {
+		return fmt.Errorf("expected %d responses, got %d", len(calls), len(mcResponse))
+	}
+
+	for i := range calls {
+		if !mcResponse[i].Success {
+			return fmt.Errorf("multicall element failed")
+		}
+	}
+
+	for i := range calls {
+		rawResult := mcResponse[i].ReturnData
+		err := calls[i].unpack(rawResult)
+		if err != nil {
+			return fmt.Errorf("failed to unpack result: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (calls callRecords) executeBatched(multicallInstance *bind.BoundContract, opts *bind.CallOpts, batchSize int) error {
+	for batch := range slices.Chunk(calls, batchSize) {
+		if err := batch.execute(multicallInstance, opts); err != nil {
+			return fmt.Errorf("failed to execute batch: %w", err)
+		}
+	}
+	return nil
 }
 
 var multicall3 *abis.Multicall3
@@ -89,89 +168,60 @@ func (m *Multicall) HeaderByNumber(ctx context.Context, number *big.Int) (*types
 }
 
 func (m *Multicall) RefreshAddresses(opts *bind.CallOpts) error {
-	storageInstance := rocketStorage.Instance(m.client, m.rocketStorageAddress)
-
 	// hashes precomputed from https://emn178.github.io/online-tools/keccak_256.html
 
-	// nodeManagerKey is a keccak256 of "contract.addressrocketNodeManager"
-	nodeManagerKey := common.HexToHash("0xaf00be55c9fb8f543c04e0aa0d70351b880c1bfafffd15b60065a4a50c85ec94")
-	// get nodeManagerAddress from storage
-	nodeManagerAddressCallPacked := rocketStorage.PackGetAddress(nodeManagerKey)
-	nodeManagerAddressResponsePacked, err := storageInstance.CallRaw(opts, nodeManagerAddressCallPacked)
-	if err != nil {
-		return fmt.Errorf("failed to get node manager address: %w", err)
-	}
-	nodeManagerAddress, err := rocketStorage.UnpackGetAddress(nodeManagerAddressResponsePacked)
-	if err != nil {
-		return fmt.Errorf("failed to unpack node manager address: %w", err)
+	var rocketDaoNodeTrustedAddress common.Address
+
+	getAddressCalls := make(callRecords, 0)
+
+	for _, contract := range []struct {
+		Key         string
+		Destination *common.Address
+	}{
+		{
+			// keccak256 of "contract.addressrocketNodeManager"
+			Key:         "0xaf00be55c9fb8f543c04e0aa0d70351b880c1bfafffd15b60065a4a50c85ec94",
+			Destination: &(m.rocketNodeManagerAddress),
+		},
+		{
+			// keccak256 of "contract.addressrocketNodeDistributorFactory"
+			Key:         "0xea051094896ef3b09ab1b794ad5ea695a5ff3906f74a9328e2c16db69d0f3123",
+			Destination: &(m.rocketNodeDistributorFactoryAddress),
+		},
+		{
+			// keccak256 of "contract.addressrocketMinipoolManager"
+			Key:         "0xe9dfec9339b94a131861a58f1bb4ac4c1ce55c7ffe8550e0b6ebcfde87bb012f",
+			Destination: &(m.rocketMinipoolManagerAddress),
+		},
+		{
+			// keccak256 of "contract.addressrocketDAONodeTrusted"
+			Key:         "0x9a354e1bb2e38ca826db7a8d061cfb0ed7dbd83d241a2cbe4fd5218f9bb4333f",
+			Destination: &rocketDaoNodeTrustedAddress,
+		},
+		{
+			// keccak256 of "contract.addressrocketTokenRETH"
+			Key:         "0xe3744443225bff7cc22028be036b80de58057d65a3fdca0a3df329f525e31ccc",
+			Destination: &(m.rocketTokenREthAddress),
+		},
+		{
+			// keccak256 of "contract.addressrocketSmoothingPool"
+			Key:         "0x822231720aef9b264db1d9ca053137498f759c28b243f45c44db1d39d6bce46e",
+			Destination: &(m.rocketSmoothingPoolAddress),
+		},
+	} {
+		getAddressCalls = append(getAddressCalls, call[common.Address]{
+			ContractAddress: m.rocketStorageAddress,
+			PackedCall:      rocketStorage.PackGetAddress(common.HexToHash(contract.Key)),
+			Unpacker:        rocketStorage.UnpackGetAddress,
+			Destination:     contract.Destination,
+		}.getCallRecord())
 	}
 
-	// nodeDistributorFactoryKey is a keccak256 of "contract.addressrocketNodeDistributorFactory"
-	nodeDistributorFactoryKey := common.HexToHash("0xea051094896ef3b09ab1b794ad5ea695a5ff3906f74a9328e2c16db69d0f3123")
-	nodeDistributorFactoryAddressCallPacked := rocketStorage.PackGetAddress(nodeDistributorFactoryKey)
-	nodeDistributorFactoryAddressResponsePacked, err := storageInstance.CallRaw(opts, nodeDistributorFactoryAddressCallPacked)
-	if err != nil {
-		return fmt.Errorf("failed to get node distributor factory address: %w", err)
-	}
-	nodeDistributorFactoryAddress, err := rocketStorage.UnpackGetAddress(nodeDistributorFactoryAddressResponsePacked)
-	if err != nil {
-		return fmt.Errorf("failed to unpack node distributor factory address: %w", err)
+	if err := getAddressCalls.execute(m.multicallInstance, opts); err != nil {
+		return fmt.Errorf("failed to get address calls: %w", err)
 	}
 
-	// minipoolManagerKey is a keccak256 of "contract.addressrocketMinipoolManager"
-	minipoolManagerKey := common.HexToHash("0xe9dfec9339b94a131861a58f1bb4ac4c1ce55c7ffe8550e0b6ebcfde87bb012f")
-	minipoolManagerAddressCallPacked := rocketStorage.PackGetAddress(minipoolManagerKey)
-	minipoolManagerAddressResponsePacked, err := storageInstance.CallRaw(opts, minipoolManagerAddressCallPacked)
-	if err != nil {
-		return fmt.Errorf("failed to get minipool manager address: %w", err)
-	}
-	minipoolManagerAddress, err := rocketStorage.UnpackGetAddress(minipoolManagerAddressResponsePacked)
-	if err != nil {
-		return fmt.Errorf("failed to unpack minipool manager address: %w", err)
-	}
-
-	// rocketDAONodeTrustedKey is a keccak256 of "contract.addressrocketDAONodeTrusted"
-	rocketDAONodeTrustedKey := common.HexToHash("0x9a354e1bb2e38ca826db7a8d061cfb0ed7dbd83d241a2cbe4fd5218f9bb4333f")
-	rocketDAONodeTrustedAddressCallPacked := rocketStorage.PackGetAddress(rocketDAONodeTrustedKey)
-	rocketDAONodeTrustedAddressResponsePacked, err := storageInstance.CallRaw(opts, rocketDAONodeTrustedAddressCallPacked)
-	if err != nil {
-		return fmt.Errorf("failed to get rocket dao node trusted address: %w", err)
-	}
-	rocketDAONodeTrustedAddress, err := rocketStorage.UnpackGetAddress(rocketDAONodeTrustedAddressResponsePacked)
-	if err != nil {
-		return fmt.Errorf("failed to unpack rocket dao node trusted address: %w", err)
-	}
-
-	// rethAddressKey is a keccak256 of "contract.addressrocketTokenRETH"
-	rethAddressKey := common.HexToHash("0xe3744443225bff7cc22028be036b80de58057d65a3fdca0a3df329f525e31ccc")
-	rethAddressCallPacked := rocketStorage.PackGetAddress(rethAddressKey)
-	rethAddressResponsePacked, err := storageInstance.CallRaw(opts, rethAddressCallPacked)
-	if err != nil {
-		return fmt.Errorf("failed to get reth address: %w", err)
-	}
-	rethAddress, err := rocketStorage.UnpackGetAddress(rethAddressResponsePacked)
-	if err != nil {
-		return fmt.Errorf("failed to unpack reth address: %w", err)
-	}
-
-	// smoothingPoolAddressKey is a keccak256 of "contract.addressrocketSmoothingPool"
-	smoothingPoolAddressKey := common.HexToHash("0x822231720aef9b264db1d9ca053137498f759c28b243f45c44db1d39d6bce46e")
-	smoothingPoolAddressCallPacked := rocketStorage.PackGetAddress(smoothingPoolAddressKey)
-	smoothingPoolAddressResponsePacked, err := storageInstance.CallRaw(opts, smoothingPoolAddressCallPacked)
-	if err != nil {
-		return fmt.Errorf("failed to get smoothing pool address: %w", err)
-	}
-	smoothingPoolAddress, err := rocketStorage.UnpackGetAddress(smoothingPoolAddressResponsePacked)
-	if err != nil {
-		return fmt.Errorf("failed to unpack smoothing pool address: %w", err)
-	}
-
-	m.rocketNodeManagerAddress = nodeManagerAddress
-	m.rocketNodeDistributorFactoryAddress = nodeDistributorFactoryAddress
-	m.rocketMinipoolManagerAddress = minipoolManagerAddress
-	m.rocketDaoNodeTrustedInstance = rocketDaoNodeTrusted.Instance(m.client, rocketDAONodeTrustedAddress)
-	m.rocketTokenREthAddress = rethAddress
-	m.rocketSmoothingPoolAddress = smoothingPoolAddress
+	m.rocketDaoNodeTrustedInstance = rocketDaoNodeTrusted.Instance(m.client, rocketDaoNodeTrustedAddress)
 
 	return nil
 }
@@ -206,86 +256,29 @@ func (m *Multicall) GetAllNodes(opts *bind.CallOpts) (map[common.Address]*NodeIn
 		nodeAddresses = append(nodeAddresses, nodes...)
 	}
 
-	// In batches of 500, populate FeeDistributor
-	for i := 0; i < len(nodeAddresses); i += m.NodeBatchSize {
-		batch := nodeAddresses[i:min(i+m.NodeBatchSize, len(nodeAddresses))]
-
-		calls := make([]abis.Multicall3Call3, 0, len(batch))
-		for _, node := range batch {
-			calls = append(calls, abis.Multicall3Call3{
-				Target:       m.rocketNodeDistributorFactoryAddress,
-				AllowFailure: false,
-				CallData:     rocketNodeDistributorFactory.PackGetProxyAddress(node),
-			})
-		}
-
-		// Run the multicall call
-		mcPacked := multicall3.PackAggregate3(calls)
-		mcResponsePacked, err := m.multicallInstance.CallRaw(opts, mcPacked)
-		if err != nil {
-			return nil, fmt.Errorf("failed to call multicall: %w", err)
-		}
-		mcResponse, err := multicall3.UnpackAggregate3(mcResponsePacked)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unpack multicall response: %w", err)
-		}
-
-		// Unpack the inner responses.
-		for j, call := range mcResponse {
-			if !call.Success {
-				return nil, errors.New("multicall element failed")
-			}
-			rawResult := call.ReturnData
-			distributorAddress, err := rocketNodeDistributorFactory.UnpackGetProxyAddress(rawResult)
-			if err != nil {
-				return nil, fmt.Errorf("failed to unpack distributor address: %w", err)
-			}
-			// batch is 0-index, but the response will be in the same order as the calls
-			// Therefor, batch[j] is the address of the node for each result
-			// Since this is the first datum for each node, create a new NodeInfo struct.
-			nodeMap[batch[j]] = &NodeInfo{
-				FeeDistributor: distributorAddress,
-			}
-		}
+	// populate FeeDistributor and InSmoothingPool
+	records := make(callRecords, 0, len(nodeAddresses)*2)
+	for _, nodeAddress := range nodeAddresses {
+		nodeInfo := &NodeInfo{}
+		nodeMap[nodeAddress] = nodeInfo
+		records = append(records, call[common.Address]{
+			ContractAddress: m.rocketNodeDistributorFactoryAddress,
+			PackedCall:      rocketNodeDistributorFactory.PackGetProxyAddress(nodeAddress),
+			Unpacker:        rocketNodeDistributorFactory.UnpackGetProxyAddress,
+			Destination:     &(nodeInfo.FeeDistributor),
+		}.getCallRecord())
+		records = append(records, call[bool]{
+			ContractAddress: m.rocketNodeManagerAddress,
+			PackedCall:      rocketNodeManager.PackGetSmoothingPoolRegistrationState(nodeAddress),
+			Unpacker:        rocketNodeManager.UnpackGetSmoothingPoolRegistrationState,
+			Destination:     &(nodeInfo.InSmoothingPool),
+		}.getCallRecord())
 	}
 
-	// In batches of 500, populate InSmoothingPool
-	for i := 0; i < len(nodeAddresses); i += m.NodeBatchSize {
-		batch := nodeAddresses[i:min(i+m.NodeBatchSize, len(nodeAddresses))]
-
-		calls := make([]abis.Multicall3Call3, 0, len(batch))
-		for _, node := range batch {
-			calls = append(calls, abis.Multicall3Call3{
-				Target:       m.rocketNodeManagerAddress,
-				AllowFailure: false,
-				CallData:     rocketNodeManager.PackGetSmoothingPoolRegistrationState(node),
-			})
-		}
-
-		// Run the multicall call
-		mcPacked := multicall3.PackAggregate3(calls)
-		mcResponsePacked, err := m.multicallInstance.CallRaw(opts, mcPacked)
-		if err != nil {
-			return nil, fmt.Errorf("failed to call multicall: %w", err)
-		}
-		mcResponse, err := multicall3.UnpackAggregate3(mcResponsePacked)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unpack multicall response: %w", err)
-		}
-
-		// Unpack the inner responses.
-		for j, call := range mcResponse {
-			if !call.Success {
-				return nil, errors.New("multicall element failed")
-			}
-			rawResult := call.ReturnData
-			smoothingPoolRegistrationState, err := rocketNodeManager.UnpackGetSmoothingPoolRegistrationState(rawResult)
-			if err != nil {
-				return nil, fmt.Errorf("failed to unpack smoothing pool registration state: %w", err)
-			}
-			nodeMap[batch[j]].InSmoothingPool = smoothingPoolRegistrationState
-		}
+	if err := records.executeBatched(m.multicallInstance, opts, m.NodeBatchSize); err != nil {
+		return nil, fmt.Errorf("failed to execute fee distributor and smoothing pool batch: %w", err)
 	}
+
 	return nodeMap, nil
 }
 
@@ -305,144 +298,59 @@ func (m *Multicall) GetAllMinipools(nodes map[common.Address]*NodeInfo, opts *bi
 		})
 	}
 
-	// Working 500 nodes at a time, get the minipool count
-	for i := 0; i < len(nodeInfos); i += m.NodeBatchSize {
-		batch := nodeInfos[i:min(i+m.NodeBatchSize, len(nodeInfos))]
-
-		calls := make([]abis.Multicall3Call3, 0, len(batch))
-		for _, node := range batch {
-			calls = append(calls, abis.Multicall3Call3{
-				Target:       m.rocketMinipoolManagerAddress,
-				AllowFailure: false,
-				CallData:     rocketMinipoolManager.PackGetNodeMinipoolCount(node.address),
-			})
-		}
-
-		mcPacked := multicall3.PackAggregate3(calls)
-		mcResponsePacked, err := m.multicallInstance.CallRaw(opts, mcPacked)
-		if err != nil {
-			return nil, fmt.Errorf("failed to call multicall: %w", err)
-		}
-		mcResponse, err := multicall3.UnpackAggregate3(mcResponsePacked)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unpack multicall response: %w", err)
-		}
-
-		for j, call := range mcResponse {
-			if !call.Success {
-				return nil, errors.New("multicall element failed")
-			}
-			rawResult := call.ReturnData
-			minipoolCount, err := rocketMinipoolManager.UnpackGetNodeMinipoolCount(rawResult)
-			if err != nil {
-				return nil, fmt.Errorf("failed to unpack minipool count: %w", err)
-			}
-			batch[j].minipoolCount = minipoolCount
-		}
+	// Get the minipool counts
+	records := make(callRecords, 0, len(nodeInfos))
+	for _, node := range nodeInfos {
+		records = append(records, call[*big.Int]{
+			ContractAddress: m.rocketMinipoolManagerAddress,
+			PackedCall:      rocketMinipoolManager.PackGetNodeMinipoolCount(node.address),
+			Unpacker:        rocketMinipoolManager.UnpackGetNodeMinipoolCount,
+			Destination:     &(node.minipoolCount),
+		}.getCallRecord())
 	}
-
-	type minipoolAddressCall struct {
-		call abis.Multicall3Call3
-		dst  *common.Address
+	if err := records.executeBatched(m.multicallInstance, opts, m.NodeBatchSize); err != nil {
+		return nil, fmt.Errorf("failed to execute minipool count batch: %w", err)
 	}
-	// Create a list of all the calls to make
-	addressCalls := make([]minipoolAddressCall, 0, len(nodeInfos))
+	records = records[:0]
+
+	// Get the minipool addresses
 	for _, node := range nodeInfos {
 		node.minipools = make([]common.Address, node.minipoolCount.Int64())
 		for j := int64(0); j < node.minipoolCount.Int64(); j++ {
-			addressCalls = append(addressCalls, minipoolAddressCall{
-				call: abis.Multicall3Call3{
-					Target:       m.rocketMinipoolManagerAddress,
-					AllowFailure: false,
-					CallData:     rocketMinipoolManager.PackGetNodeMinipoolAt(node.address, big.NewInt(j)),
-				},
-				dst: &node.minipools[j],
-			})
+			records = append(records, call[common.Address]{
+				ContractAddress: m.rocketMinipoolManagerAddress,
+				PackedCall:      rocketMinipoolManager.PackGetNodeMinipoolAt(node.address, big.NewInt(j)),
+				Unpacker:        rocketMinipoolManager.UnpackGetNodeMinipoolAt,
+				Destination:     &(node.minipools[j]),
+			}.getCallRecord())
 		}
 	}
-
-	// Working 500 calls at a time, get the minipool addresses
-	for i := 0; i < len(addressCalls); i += m.NodeBatchSize {
-		batch := addressCalls[i:min(i+m.NodeBatchSize, len(addressCalls))]
-
-		calls := make([]abis.Multicall3Call3, 0, len(batch))
-		for _, call := range batch {
-			calls = append(calls, call.call)
-		}
-
-		mcPacked := multicall3.PackAggregate3(calls)
-		mcResponsePacked, err := m.multicallInstance.CallRaw(opts, mcPacked)
-		if err != nil {
-			return nil, fmt.Errorf("failed to call multicall: %w", err)
-		}
-		mcResponse, err := multicall3.UnpackAggregate3(mcResponsePacked)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unpack multicall response: %w", err)
-		}
-
-		if len(mcResponse) != len(batch) {
-			return nil, fmt.Errorf("expected %d responses, got %d", len(batch), len(mcResponse))
-		}
-
-		for j := range batch {
-			rawResult := mcResponse[j].ReturnData
-			minipoolAddress, err := rocketMinipoolManager.UnpackGetNodeMinipoolAt(rawResult)
-			if err != nil {
-				return nil, fmt.Errorf("failed to unpack minipool address: %w", err)
-			}
-			*batch[j].dst = minipoolAddress
-		}
+	if err := records.executeBatched(m.multicallInstance, opts, m.NodeBatchSize); err != nil {
+		return nil, fmt.Errorf("failed to execute minipool address batch: %w", err)
 	}
+	records = records[:0]
 
-	type minipoolPubkeyCall struct {
-		call abis.Multicall3Call3
-		dst  *rptypes.ValidatorPubkey
-	}
-	pubkeyCalls := make([]minipoolPubkeyCall, 0, len(nodeInfos))
+	// Get the minipool pubkeys
 	for _, node := range nodeInfos {
 		node.validators = make([]rptypes.ValidatorPubkey, node.minipoolCount.Int64())
 		for j := int64(0); j < node.minipoolCount.Int64(); j++ {
-			pubkeyCalls = append(pubkeyCalls, minipoolPubkeyCall{
-				call: abis.Multicall3Call3{
-					Target:       m.rocketMinipoolManagerAddress,
-					AllowFailure: false,
-					CallData:     rocketMinipoolManager.PackGetMinipoolPubkey(node.minipools[j]),
+			records = append(records, call[rptypes.ValidatorPubkey]{
+				ContractAddress: m.rocketMinipoolManagerAddress,
+				PackedCall:      rocketMinipoolManager.PackGetMinipoolPubkey(node.minipools[j]),
+				Unpacker: func(rawResult []byte) (rptypes.ValidatorPubkey, error) {
+					unpacked, err := rocketMinipoolManager.UnpackGetMinipoolPubkey(rawResult)
+					if err != nil {
+						return rptypes.ValidatorPubkey{}, fmt.Errorf("failed to unpack minipool pubkey: %w", err)
+					}
+					return rptypes.BytesToValidatorPubkey(unpacked), nil
 				},
-				dst: &node.validators[j],
-			})
+				Destination: &(node.validators[j]),
+			}.getCallRecord())
 		}
 	}
-	// Working 500 calls at a time, get the minipool pubkeys
-	for i := 0; i < len(pubkeyCalls); i += m.NodeBatchSize {
-		batch := pubkeyCalls[i:min(i+m.NodeBatchSize, len(pubkeyCalls))]
 
-		calls := make([]abis.Multicall3Call3, 0, len(batch))
-		for _, call := range batch {
-			calls = append(calls, call.call)
-		}
-
-		mcPacked := multicall3.PackAggregate3(calls)
-		mcResponsePacked, err := m.multicallInstance.CallRaw(opts, mcPacked)
-		if err != nil {
-			return nil, fmt.Errorf("failed to call multicall: %w", err)
-		}
-		mcResponse, err := multicall3.UnpackAggregate3(mcResponsePacked)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unpack multicall response: %w", err)
-		}
-
-		if len(mcResponse) != len(batch) {
-			return nil, fmt.Errorf("expected %d responses, got %d", len(batch), len(mcResponse))
-		}
-
-		for j := range batch {
-			rawResult := mcResponse[j].ReturnData
-			minipoolPubkey, err := rocketMinipoolManager.UnpackGetMinipoolPubkey(rawResult)
-			if err != nil {
-				return nil, fmt.Errorf("failed to unpack minipool pubkey: %w", err)
-			}
-			copy((*batch[j].dst)[:], minipoolPubkey)
-		}
+	if err := records.executeBatched(m.multicallInstance, opts, m.NodeBatchSize); err != nil {
+		return nil, fmt.Errorf("failed to execute minipool pubkey batch: %w", err)
 	}
 
 	// Finally, create an address->[]pubkey map to return
