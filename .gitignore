@@ -17,6 +17,3 @@ rescue-proxy
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
-
-executionlayer/dataprovider/abis/*_encoding.go
-pb/
