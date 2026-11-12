@@ -1,4 +1,4 @@
-VERSION = v3.2.0
+VERSION = v4.0.0
 
 ABIGEN_CMD := go run github.com/ethereum/go-ethereum/cmd/abigen@v1.16.1 --v2
 
@@ -16,6 +16,7 @@ ABI_ENCODINGS = $(MULTICALL_ABI_DIR)/multicall_encoding.go \
 	$(MULTICALL_ABI_DIR)/rocketnodemanager_encoding.go \
 	$(MULTICALL_ABI_DIR)/rocketnodedistributorfactory_encoding.go \
 	$(MULTICALL_ABI_DIR)/rocketminipoolmanager_encoding.go \
+	$(MULTICALL_ABI_DIR)/rocketmegapool_encoding.go \
 	$(MULTICALL_ABI_DIR)/rocketdaonodetrusted_encoding.go \
 	$(MULTICALL_ABI_DIR)/eip1271_encoding.go \
 	$(MULTICALL_ABI_DIR)/vaultsregistry_encoding.go \
@@ -35,6 +36,8 @@ executionlayer/dataprovider/abis/rocketnodedistributorfactory_encoding.go: $(MUL
 	$(ABIGEN_CMD) --abi $< --pkg abis --type RocketNodeDistributorFactory --out $@
 executionlayer/dataprovider/abis/rocketminipoolmanager_encoding.go: $(MULTICALL_ABI_JSON_DIR)/rocketminipoolmanager_abi.json
 	$(ABIGEN_CMD) --abi $< --pkg abis --type RocketMinipoolManager --out $@
+executionlayer/dataprovider/abis/rocketmegapool_encoding.go: $(MULTICALL_ABI_JSON_DIR)/rocketmegapool_abi.json
+	$(ABIGEN_CMD) --abi $< --pkg abis --type RocketMegapool --out $@
 executionlayer/dataprovider/abis/rocketdaonodetrusted_encoding.go: $(MULTICALL_ABI_JSON_DIR)/rocketdaonodetrusted_abi.json
 	$(ABIGEN_CMD) --abi $< --pkg abis --type RocketDaoNodeTrusted --out $@
 executionlayer/dataprovider/abis/eip1271_encoding.go: $(MULTICALL_ABI_JSON_DIR)/eip1271_abi.json

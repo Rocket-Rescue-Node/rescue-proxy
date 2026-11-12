@@ -58,10 +58,13 @@ func setup(t *testing.T, m *mockEC) *elTest {
 }
 
 type mockNode struct {
-	addr        common.Address
-	inSP        bool
-	minipools   int
-	minipoolMap map[rptypes.ValidatorPubkey]interface{}
+	addr            common.Address
+	inSP            bool
+	minipools       int
+	megapools       int
+	megapoolAddress common.Address
+	minipoolMap     map[rptypes.ValidatorPubkey]interface{}
+	megapoolMap     map[rptypes.ValidatorPubkey]interface{}
 }
 
 type mockEC struct {
@@ -78,6 +81,7 @@ func (m *mockEC) GetAllNodes(opts *bind.CallOpts) (map[common.Address]*dataprovi
 		out[node.addr] = &dataprovider.NodeInfo{
 			InSmoothingPool: node.inSP,
 			FeeDistributor:  node.addr,
+			MegapoolAddress: node.megapoolAddress,
 		}
 	}
 	return out, nil
@@ -86,6 +90,11 @@ func (m *mockEC) GetAllNodes(opts *bind.CallOpts) (map[common.Address]*dataprovi
 func pubkeyFromMinipool(addr common.Address) string {
 	// Simply left-pad with a char out to the desired length
 	return fmt.Sprintf("f0f0%092s", addr.String()[2:])
+}
+
+func pubkeyFromMegapool(addr common.Address, index int) string {
+	// Use a distinct hex prefix from minipools so pubkeys don't collide
+	return fmt.Sprintf("f1%02x%092s", index, addr.String()[2:])
 }
 
 func (m *mockEC) GetAllMinipools(nodes map[common.Address]*dataprovider.NodeInfo, opts *bind.CallOpts) (map[common.Address][]rptypes.ValidatorPubkey, error) {
@@ -100,6 +109,27 @@ func (m *mockEC) GetAllMinipools(nodes map[common.Address]*dataprovider.NodeInfo
 			}
 			out[node.addr] = append(out[node.addr], rptypes.BytesToValidatorPubkey(h))
 			node.minipoolMap[rptypes.BytesToValidatorPubkey(h)] = struct{}{}
+		}
+	}
+	return out, nil
+}
+
+func (m *mockEC) GetAllMegapools(nodes map[common.Address]*dataprovider.NodeInfo, opts *bind.CallOpts) (map[common.Address][]rptypes.ValidatorPubkey, error) {
+	out := make(map[common.Address][]rptypes.ValidatorPubkey)
+	for _, node := range m.nodes {
+		node.megapoolMap = make(map[rptypes.ValidatorPubkey]interface{})
+		if node.megapools == 0 || node.megapoolAddress == (common.Address{}) {
+			continue
+		}
+		for i := 0; i < node.megapools; i++ {
+			pubkey := pubkeyFromMegapool(node.addr, i)
+			h, err := hex.DecodeString(pubkey)
+			if err != nil {
+				return nil, errors.New("unexpected invalid pubkey")
+			}
+			pk := rptypes.BytesToValidatorPubkey(h)
+			out[node.addr] = append(out[node.addr], pk)
+			node.megapoolMap[pk] = struct{}{}
 		}
 	}
 	return out, nil
@@ -381,6 +411,9 @@ func TestELForEaches(t *testing.T) {
 			if n.inSP && ri.ExpectedFeeRecipient.String() != common.HexToAddress(rocketSmoothingPool).String() {
 				t.Fatal("expected node to have fee recipient set to sp")
 			}
+			if !n.inSP && ri.ExpectedFeeRecipient.String() != n.addr.String() {
+				t.Fatal("expected minipool fee recipient to be fee distributor")
+			}
 		}
 	}
 
@@ -390,6 +423,74 @@ func TestELForEaches(t *testing.T) {
 		t.Fatal("expected error")
 	} else if !errors.Is(err, &NotFoundError{}) {
 		t.Fatal("unexpected error", err)
+	}
+}
+
+func TestELGetRPInfoMegapool(t *testing.T) {
+	megapoolAddr := common.HexToAddress("0x00000000000000000000000000000000aaaa0001")
+	feeDistributor := common.HexToAddress("0x0000000000000000000001234567899876543210")
+	mock := &mockEC{t,
+		[]*mockNode{
+			{
+				addr:            feeDistributor,
+				inSP:            false,
+				minipools:       1,
+				megapools:       2,
+				megapoolAddress: megapoolAddr,
+			},
+			{
+				addr:            common.HexToAddress("0x0000000000000000000002234567899876543210"),
+				inSP:            true,
+				minipools:       0,
+				megapools:       1,
+				megapoolAddress: common.HexToAddress("0x00000000000000000000000000000000bbbb0002"),
+			},
+		},
+		nil,
+	}
+	et := setup(t, mock)
+	if err := et.ec.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	optedOut := mock.nodes[0]
+	for pk := range optedOut.minipoolMap {
+		ri, err := et.ec.GetRPInfo(pk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ri == nil {
+			t.Fatal("expected rp info for minipool")
+		}
+		if ri.ExpectedFeeRecipient.String() != optedOut.addr.String() {
+			t.Fatalf("expected minipool fee recipient %s, got %s", optedOut.addr, ri.ExpectedFeeRecipient)
+		}
+	}
+	for pk := range optedOut.megapoolMap {
+		ri, err := et.ec.GetRPInfo(pk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ri == nil {
+			t.Fatal("expected rp info for megapool")
+		}
+		if ri.ExpectedFeeRecipient.String() != megapoolAddr.String() {
+			t.Fatalf("expected megapool fee recipient %s, got %s", megapoolAddr, ri.ExpectedFeeRecipient)
+		}
+	}
+
+	optedIn := mock.nodes[1]
+	for pk := range optedIn.megapoolMap {
+		ri, err := et.ec.GetRPInfo(pk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ri == nil {
+			t.Fatal("expected rp info for megapool in SP")
+		}
+		if ri.ExpectedFeeRecipient.String() != common.HexToAddress(rocketSmoothingPool).String() {
+			t.Fatalf("expected smoothing pool fee recipient, got %s", ri.ExpectedFeeRecipient)
+		}
 	}
 }
 

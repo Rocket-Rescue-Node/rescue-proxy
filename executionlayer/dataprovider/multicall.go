@@ -119,6 +119,7 @@ var rocketStorage *abis.RocketStorage
 var rocketNodeManager *abis.RocketNodeManager
 var rocketNodeDistributorFactory *abis.RocketNodeDistributorFactory
 var rocketMinipoolManager *abis.RocketMinipoolManager
+var rocketMegapool *abis.RocketMegapool
 var rocketDaoNodeTrusted *abis.RocketDaoNodeTrusted
 var eip1271 *abis.EIP1271
 
@@ -128,6 +129,7 @@ func init() {
 	rocketNodeManager = abis.NewRocketNodeManager()
 	rocketNodeDistributorFactory = abis.NewRocketNodeDistributorFactory()
 	rocketMinipoolManager = abis.NewRocketMinipoolManager()
+	rocketMegapool = abis.NewRocketMegapool()
 	rocketDaoNodeTrusted = abis.NewRocketDaoNodeTrusted()
 	eip1271 = abis.NewEIP1271()
 }
@@ -256,8 +258,8 @@ func (m *Multicall) GetAllNodes(opts *bind.CallOpts) (map[common.Address]*NodeIn
 		nodeAddresses = append(nodeAddresses, nodes...)
 	}
 
-	// populate FeeDistributor and InSmoothingPool
-	records := make(callRecords, 0, len(nodeAddresses)*2)
+	// populate FeeDistributor, InSmoothingPool, and MegapoolAddress
+	records := make(callRecords, 0, len(nodeAddresses)*3)
 	for _, nodeAddress := range nodeAddresses {
 		nodeInfo := &NodeInfo{}
 		nodeMap[nodeAddress] = nodeInfo
@@ -272,6 +274,12 @@ func (m *Multicall) GetAllNodes(opts *bind.CallOpts) (map[common.Address]*NodeIn
 			PackedCall:      rocketNodeManager.PackGetSmoothingPoolRegistrationState(nodeAddress),
 			Unpacker:        rocketNodeManager.UnpackGetSmoothingPoolRegistrationState,
 			Destination:     &(nodeInfo.InSmoothingPool),
+		}.getCallRecord())
+		records = append(records, call[common.Address]{
+			ContractAddress: m.rocketNodeManagerAddress,
+			PackedCall:      rocketNodeManager.PackGetMegapoolAddress(nodeAddress),
+			Unpacker:        rocketNodeManager.UnpackGetMegapoolAddress,
+			Destination:     &(nodeInfo.MegapoolAddress),
 		}.getCallRecord())
 	}
 
@@ -354,6 +362,76 @@ func (m *Multicall) GetAllMinipools(nodes map[common.Address]*NodeInfo, opts *bi
 	}
 
 	// Finally, create an address->[]pubkey map to return
+	out := make(map[common.Address][]rptypes.ValidatorPubkey, len(nodeInfos))
+	for _, nodeInfo := range nodeInfos {
+		out[nodeInfo.address] = nodeInfo.validators
+	}
+
+	return out, nil
+}
+
+func (m *Multicall) GetAllMegapools(nodes map[common.Address]*NodeInfo, opts *bind.CallOpts) (map[common.Address][]rptypes.ValidatorPubkey, error) {
+	type nodeInfo struct {
+		address        common.Address
+		megapool       common.Address
+		validatorCount uint32
+		validators     []rptypes.ValidatorPubkey
+	}
+
+	// Only nodes with a deployed megapool need further queries
+	nodeInfos := make([]*nodeInfo, 0, len(nodes))
+	for addr, node := range nodes {
+		if node.MegapoolAddress == (common.Address{}) {
+			continue
+		}
+		nodeInfos = append(nodeInfos, &nodeInfo{
+			address:  addr,
+			megapool: node.MegapoolAddress,
+		})
+	}
+	if len(nodeInfos) == 0 {
+		return map[common.Address][]rptypes.ValidatorPubkey{}, nil
+	}
+
+	// Get the megapool validator counts
+	records := make(callRecords, 0, len(nodeInfos))
+	for _, node := range nodeInfos {
+		records = append(records, call[uint32]{
+			ContractAddress: node.megapool,
+			PackedCall:      rocketMegapool.PackGetValidatorCount(),
+			Unpacker:        rocketMegapool.UnpackGetValidatorCount,
+			Destination:     &(node.validatorCount),
+		}.getCallRecord())
+	}
+	if err := records.executeBatched(m.multicallInstance, opts, m.NodeBatchSize); err != nil {
+		return nil, fmt.Errorf("failed to execute megapool validator count batch: %w", err)
+	}
+	records = records[:0]
+
+	// Get the megapool validator pubkeys
+	for _, node := range nodeInfos {
+		node.validators = make([]rptypes.ValidatorPubkey, node.validatorCount)
+		for j := uint32(0); j < node.validatorCount; j++ {
+			records = append(records, call[rptypes.ValidatorPubkey]{
+				ContractAddress: node.megapool,
+				PackedCall:      rocketMegapool.PackGetValidatorPubkey(j),
+				Unpacker: func(rawResult []byte) (rptypes.ValidatorPubkey, error) {
+					unpacked, err := rocketMegapool.UnpackGetValidatorPubkey(rawResult)
+					if err != nil {
+						return rptypes.ValidatorPubkey{}, fmt.Errorf("failed to unpack megapool pubkey: %w", err)
+					}
+					return rptypes.BytesToValidatorPubkey(unpacked), nil
+				},
+				Destination: &(node.validators[j]),
+			}.getCallRecord())
+		}
+	}
+	if len(records) > 0 {
+		if err := records.executeBatched(m.multicallInstance, opts, m.NodeBatchSize); err != nil {
+			return nil, fmt.Errorf("failed to execute megapool pubkey batch: %w", err)
+		}
+	}
+
 	out := make(map[common.Address][]rptypes.ValidatorPubkey, len(nodeInfos))
 	for _, nodeInfo := range nodeInfos {
 		out[nodeInfo.address] = nodeInfo.validators
