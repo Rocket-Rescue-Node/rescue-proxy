@@ -350,7 +350,7 @@ func (m *Multicall) GetAllMinipools(nodes map[common.Address]*NodeInfo, opts *bi
 					if err != nil {
 						return rptypes.ValidatorPubkey{}, fmt.Errorf("failed to unpack minipool pubkey: %w", err)
 					}
-					return rptypes.BytesToValidatorPubkey(unpacked), nil
+					return bytesToValidatorPubkey(unpacked)
 				},
 				Destination: &(node.validators[j]),
 			}.getCallRecord())
@@ -420,7 +420,7 @@ func (m *Multicall) GetAllMegapools(nodes map[common.Address]*NodeInfo, opts *bi
 					if err != nil {
 						return rptypes.ValidatorPubkey{}, fmt.Errorf("failed to unpack megapool pubkey: %w", err)
 					}
-					return rptypes.BytesToValidatorPubkey(unpacked), nil
+					return bytesToValidatorPubkey(unpacked)
 				},
 				Destination: &(node.validators[j]),
 			}.getCallRecord())
@@ -491,6 +491,13 @@ func (m *Multicall) StakewiseFeeRecipient(opts *bind.CallOpts, address common.Ad
 var ErrNoData = errors.New("no data were returned from the EVM, did you pass the correct smart contract wallet address?")
 var ErrBadData = errors.New("the evm returned data with an unexpected length, did you pass the correct smart contract wallet address?")
 var ErrInternal = errors.New("an internal error occurred, please contact the maintainers")
+
+func bytesToValidatorPubkey(value []byte) (rptypes.ValidatorPubkey, error) {
+	if len(value) != rptypes.ValidatorPubkeyLength {
+		return rptypes.ValidatorPubkey{}, fmt.Errorf("invalid validator pubkey length %d, expected %d", len(value), rptypes.ValidatorPubkeyLength)
+	}
+	return rptypes.BytesToValidatorPubkey(value), nil
+}
 
 func (m *Multicall) ValidateEIP1271(opts *bind.CallOpts, dataHash common.Hash, signature []byte, address common.Address) (bool, error) {
 	// Encode the function call
