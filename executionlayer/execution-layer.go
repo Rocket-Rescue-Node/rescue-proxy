@@ -102,14 +102,23 @@ func (e *CachingExecutionLayer) newCache(loggerFunc func(fmt string, fields ...z
 	}
 	loggerFunc("Loaded minipools", zap.Int("count", len(minipools)), zap.Int64("block", opts.BlockNumber.Int64()))
 
+	// Get all megapool validators at the given block
+	megapools, err := e.DataProvider.GetAllMegapools(nodes, opts)
+	if err != nil {
+		return fmt.Errorf("error getting all megapools: %w", err)
+	}
+	loggerFunc("Loaded megapools", zap.Int("count", len(megapools)), zap.Int64("block", opts.BlockNumber.Int64()))
+
 	minipoolCount := 0
+	megapoolCount := 0
 	for addr, node := range nodes {
 		// Allocate a pointer for this node
 		nodeInfo := &dataprovider.NodeInfo{}
 
-		// Determine their smoothing pool status
+		// Determine their smoothing pool status / fee recipients
 		nodeInfo.InSmoothingPool = node.InSmoothingPool
 		nodeInfo.FeeDistributor = node.FeeDistributor
+		nodeInfo.MegapoolAddress = node.MegapoolAddress
 
 		// Store the smoothing pool state / fee distributor in the node index
 		err = out.addNodeInfo(addr, nodeInfo)
@@ -118,16 +127,24 @@ func (e *CachingExecutionLayer) newCache(loggerFunc func(fmt string, fields ...z
 		}
 
 		// Also grab their minipools
-		minipools, ok := minipools[addr]
-		if !ok {
-			continue
+		if nodeMinipools, ok := minipools[addr]; ok {
+			minipoolCount += len(nodeMinipools)
+			for _, minipool := range nodeMinipools {
+				err = out.addMinipoolNode(minipool, addr)
+				if err != nil {
+					return fmt.Errorf("unable to add minipool node: %w", err)
+				}
+			}
 		}
 
-		minipoolCount += len(minipools)
-		for _, minipool := range minipools {
-			err = out.addMinipoolNode(minipool, addr)
-			if err != nil {
-				return fmt.Errorf("unable to add minipool node: %w", err)
+		// And their megapool validators
+		if nodeMegapools, ok := megapools[addr]; ok {
+			megapoolCount += len(nodeMegapools)
+			for _, pubkey := range nodeMegapools {
+				err = out.addMegapoolNode(pubkey, addr)
+				if err != nil {
+					return fmt.Errorf("unable to add megapool node: %w", err)
+				}
 			}
 		}
 	}
@@ -153,12 +170,14 @@ func (e *CachingExecutionLayer) newCache(loggerFunc func(fmt string, fields ...z
 	loggerFunc("Loaded nodes and minipools snapshot",
 		zap.Int("nodes", len(nodes)),
 		zap.Int("minipools", minipoolCount),
+		zap.Int("megapool validators", megapoolCount),
 		zap.Int("odao nodes", len(odaoNodes)))
 
 	e.cache.Store(&cacheRCU{Cache: &out, smoothingPoolAddress: smoothingPoolAddress, rethAddress: rethAddress})
 
 	e.m.Gauge("execution_cache_nodes").Set(float64(len(nodes)))
 	e.m.Gauge("execution_cache_minipools").Set(float64(minipoolCount))
+	e.m.Gauge("execution_cache_megapool_validators").Set(float64(megapoolCount))
 	e.m.Gauge("execution_cache_odao_nodes").Set(float64(len(odaoNodes)))
 
 	// Useful for data freshness on the dashboard
@@ -220,11 +239,11 @@ func (e *CachingExecutionLayer) ForEachOdaoNode(closure ForEachNodeClosure) erro
 	return c.forEachOdaoNode(closure)
 }
 
-// GetRPInfo returns the expected fee recipient and node address for a validator, or nil if the validator is not a minipool
+// GetRPInfo returns the expected fee recipient and node address for a validator, or nil if the validator is not a minipool/megapool
 func (e *CachingExecutionLayer) GetRPInfo(pubkey rptypes.ValidatorPubkey) (*RPInfo, error) {
 	c := e.cache.Load()
 
-	nodeAddr, err := c.getMinipoolNode(pubkey)
+	validator, err := c.getMinipoolNode(pubkey)
 	if err != nil {
 		_, ok := err.(*NotFoundError)
 		if !ok {
@@ -232,40 +251,48 @@ func (e *CachingExecutionLayer) GetRPInfo(pubkey rptypes.ValidatorPubkey) (*RPIn
 			return nil, err
 		}
 
-		// Validator (hopefully) isn't a minipool
+		// Validator (hopefully) isn't a minipool or megapool
 		e.m.Counter("non_minipool_detected").Inc()
 		return nil, nil
 	}
 
-	nodeInfo, err := c.getNodeInfo(nodeAddr)
+	nodeInfo, err := c.getNodeInfo(validator.NodeAddress)
 	if err != nil {
 		_, ok := err.(*NotFoundError)
 		if !ok {
 			e.Logger.Panic("error querying cache for node",
 				zap.String("pubkey", pubkey.String()),
-				zap.String("node", nodeAddr.String()),
+				zap.String("node", validator.NodeAddress.String()),
 				zap.Error(err))
 			return nil, err
 		}
 
-		// Validator was a minipool, but we don't have a node record for it. This is bad.
+		// Validator was indexed, but we don't have a node record for it. This is bad.
 		e.m.Counter("cache_inconsistent").Inc()
 		e.Logger.Error("Validator was in the minipool index, but not the node index",
 			zap.String("pubkey", pubkey.String()),
-			zap.String("node", nodeAddr.String()))
-		return nil, fmt.Errorf("node %s not found in cache despite pubkey %s being present", nodeAddr.String(), pubkey.String())
+			zap.String("node", validator.NodeAddress.String()))
+		return nil, fmt.Errorf("node %s not found in cache despite pubkey %s being present", validator.NodeAddress.String(), pubkey.String())
 	}
 
 	if nodeInfo.InSmoothingPool {
 		return &RPInfo{
 			ExpectedFeeRecipient: &c.smoothingPoolAddress,
-			NodeAddress:          nodeAddr,
+			NodeAddress:          validator.NodeAddress,
+		}, nil
+	}
+
+	// Megapool validators use the megapool contract as their fee recipient when opted out of the SP.
+	if validator.IsMegapool {
+		return &RPInfo{
+			ExpectedFeeRecipient: &nodeInfo.MegapoolAddress,
+			NodeAddress:          validator.NodeAddress,
 		}, nil
 	}
 
 	return &RPInfo{
 		ExpectedFeeRecipient: &nodeInfo.FeeDistributor,
-		NodeAddress:          nodeAddr,
+		NodeAddress:          validator.NodeAddress,
 	}, nil
 }
 

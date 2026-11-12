@@ -12,10 +12,17 @@ func (e *NotFoundError) Error() string {
 	return "Key not found in cache"
 }
 
+// cachedValidator maps a pubkey to its owning node and whether it belongs to a megapool.
+type cachedValidator struct {
+	NodeAddress common.Address
+	IsMegapool  bool
+}
+
 type Cache interface {
 	init() error
-	getMinipoolNode(rptypes.ValidatorPubkey) (common.Address, error)
+	getMinipoolNode(rptypes.ValidatorPubkey) (cachedValidator, error)
 	addMinipoolNode(rptypes.ValidatorPubkey, common.Address) error
+	addMegapoolNode(rptypes.ValidatorPubkey, common.Address) error
 	getNodeInfo(common.Address) (*dataprovider.NodeInfo, error)
 	addNodeInfo(common.Address, *dataprovider.NodeInfo) error
 	forEachNode(ForEachNodeClosure) error

@@ -1,0 +1,34 @@
+[
+    {
+        "inputs": [],
+        "name": "getValidatorCount",
+        "outputs": [
+            {
+                "internalType": "uint32",
+                "name": "",
+                "type": "uint32"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "uint32",
+                "name": "_validatorId",
+                "type": "uint32"
+            }
+        ],
+        "name": "getValidatorPubkey",
+        "outputs": [
+            {
+                "internalType": "bytes",
+                "name": "",
+                "type": "bytes"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    }
+]

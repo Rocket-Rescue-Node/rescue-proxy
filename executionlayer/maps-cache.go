@@ -39,24 +39,36 @@ func (m *MapsCache) init() error {
 	return nil
 }
 
-func (m *MapsCache) getMinipoolNode(pubkey rptypes.ValidatorPubkey) (common.Address, error) {
+func (m *MapsCache) getMinipoolNode(pubkey rptypes.ValidatorPubkey) (cachedValidator, error) {
 
 	void, ok := m.minipoolIndex.Load(pubkey)
 	if !ok {
-		return common.Address{}, &NotFoundError{}
+		return cachedValidator{}, &NotFoundError{}
 	}
 
-	nodeAddr, ok := void.(common.Address)
+	info, ok := void.(cachedValidator)
 	if !ok {
-		return common.Address{}, fmt.Errorf("could not convert cache result into common.address")
+		return cachedValidator{}, fmt.Errorf("could not convert cache result into cachedValidator")
 	}
 
-	return nodeAddr, nil
+	return info, nil
 }
 
 func (m *MapsCache) addMinipoolNode(pubkey rptypes.ValidatorPubkey, nodeAddr common.Address) error {
 
-	m.minipoolIndex.Store(pubkey, nodeAddr)
+	m.minipoolIndex.Store(pubkey, cachedValidator{
+		NodeAddress: nodeAddr,
+		IsMegapool:  false,
+	})
+	return nil
+}
+
+func (m *MapsCache) addMegapoolNode(pubkey rptypes.ValidatorPubkey, nodeAddr common.Address) error {
+
+	m.minipoolIndex.Store(pubkey, cachedValidator{
+		NodeAddress: nodeAddr,
+		IsMegapool:  true,
+	})
 	return nil
 }
 
