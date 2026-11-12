@@ -494,6 +494,75 @@ func TestELGetRPInfoMegapool(t *testing.T) {
 	}
 }
 
+func TestELGetRPInfoMixedMinipoolMegapoolNonSP(t *testing.T) {
+	megapoolAddr := common.HexToAddress("0x00000000000000000000000000000000cccc0003")
+	feeDistributor := common.HexToAddress("0x0000000000000000000003234567899876543210")
+	mock := &mockEC{t,
+		[]*mockNode{
+			{
+				addr:            feeDistributor,
+				inSP:            false,
+				minipools:       1,
+				megapools:       2,
+				megapoolAddress: megapoolAddr,
+			},
+		},
+		nil,
+	}
+	et := setup(t, mock)
+	if err := et.ec.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	node := mock.nodes[0]
+	if len(node.minipoolMap) == 0 || len(node.megapoolMap) == 0 {
+		t.Fatal("expected both minipool and megapool validators")
+	}
+
+	recipients := make(map[rptypes.ValidatorPubkey]common.Address)
+	for pk := range node.minipoolMap {
+		ri, err := et.ec.GetRPInfo(pk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ri == nil {
+			t.Fatal("expected rp info for minipool")
+		}
+		if ri.NodeAddress != node.addr {
+			t.Fatalf("expected node %s, got %s", node.addr, ri.NodeAddress)
+		}
+		if *ri.ExpectedFeeRecipient != feeDistributor {
+			t.Fatalf("expected minipool fee recipient %s, got %s", feeDistributor, ri.ExpectedFeeRecipient)
+		}
+		recipients[pk] = *ri.ExpectedFeeRecipient
+	}
+	for pk := range node.megapoolMap {
+		ri, err := et.ec.GetRPInfo(pk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ri == nil {
+			t.Fatal("expected rp info for megapool")
+		}
+		if ri.NodeAddress != node.addr {
+			t.Fatalf("expected node %s, got %s", node.addr, ri.NodeAddress)
+		}
+		if *ri.ExpectedFeeRecipient != megapoolAddr {
+			t.Fatalf("expected megapool fee recipient %s, got %s", megapoolAddr, ri.ExpectedFeeRecipient)
+		}
+		recipients[pk] = *ri.ExpectedFeeRecipient
+	}
+
+	for miniPK := range node.minipoolMap {
+		for megaPK := range node.megapoolMap {
+			if recipients[miniPK] == recipients[megaPK] {
+				t.Fatalf("expected different fee recipients for minipool %s and megapool %s, both were %s",
+					miniPK.String(), megaPK.String(), recipients[miniPK])
+			}
+		}
+	}
+}
+
 func TestValidateEIP1271(t *testing.T) {
 	et := setup(t, &mockEC{t,
 		[]*mockNode{
