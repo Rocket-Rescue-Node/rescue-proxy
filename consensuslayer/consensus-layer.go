@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/Rocket-Rescue-Node/rescue-proxy/metrics"
@@ -46,6 +47,9 @@ type CachingConsensusLayer struct {
 
 	m             *metrics.MetricsRegistry
 	slotsPerEpoch uint64
+
+	// Tracks the head update goroutine so Deinit can wait for it to exit
+	wg sync.WaitGroup
 }
 
 // NewConsensusLayer creates a new consensus layer client using the provided url and logger
@@ -97,7 +101,10 @@ func (c *CachingConsensusLayer) Init(ctx context.Context) error {
 	// Poll for head updates
 	tickerCtx, tickerCtxCancel := context.WithCancel(ctx)
 	ticker := time.NewTicker(12 * time.Second)
+	c.wg.Add(1)
 	go func() {
+		defer c.wg.Done()
+		defer ticker.Stop()
 		for {
 			select {
 			case <-tickerCtx.Done():
@@ -241,5 +248,7 @@ func (c *CachingConsensusLayer) Deinit() {
 		c.logger.Info("Error closing validator cache", zap.Error(err))
 	}
 	c.disconnect()
+	// Wait for the head update goroutine to exit
+	c.wg.Wait()
 	c.logger.Info("HTTP Client Disconnected from the BN")
 }
