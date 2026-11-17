@@ -322,6 +322,7 @@ func TestErrorPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(cct.ccl.Deinit)
 
 	// 0x00 validators trigger logging
 	_, err = cct.ccl.GetValidatorInfo([]string{"100", "101"})
